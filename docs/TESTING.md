@@ -2,6 +2,8 @@
 
 ## Run
 
+> To check the Claude artifact build: `npm run build:artifact`, then open `artifact/dist/index.html` (see CLAUDE_ARTIFACT.md).
+
 ```bash
 npm run typecheck          # strict TypeScript, whole project
 npm test                   # Vitest unit tests

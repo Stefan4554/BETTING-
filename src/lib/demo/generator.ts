@@ -333,9 +333,9 @@ export function latestQuotes(snaps: OddsSnapshot[]): OddsQuote[] {
 }
 
 let cache: { day: number; data: DemoDataset } | null = null;
-/** Cached per UTC hour so pages are consistent within a session. */
+/** Cached per UTC hour so pages are consistent within a session. Anchored at the start of the hour so no timestamp is in the future. */
 export function demoDataset(now = new Date()): DemoDataset {
   const key = Math.floor(now.getTime() / 3_600_000);
-  if (!cache || cache.day !== key) cache = { day: key, data: generateDemo(new Date(key * 3_600_000 + 30 * 60_000)) };
+  if (!cache || cache.day !== key) cache = { day: key, data: generateDemo(new Date(key * 3_600_000)) };
   return cache.data;
 }

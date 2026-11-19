@@ -103,7 +103,11 @@ export function useBets(storage: BetStorage, initial: Bet[]) {
   };
 }
 
+/** Hosts that cannot use a plain download link (the Claude artifact build) set this. */
+type SaveHook = (filename: string, text: string, type: string) => void;
 export function downloadText(filename: string, text: string, type = "text/csv") {
+  const hook = (globalThis as { __edgeSaveFile?: SaveHook }).__edgeSaveFile;
+  if (hook) return hook(filename, text, type);
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
   a.href = url;
