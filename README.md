@@ -29,6 +29,7 @@ Set `NEXT_PUBLIC_DEMO_MODE=false` and add provider keys. Any provider without a 
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Vercel deployment, cron jobs, backups, production checklist |
 | [docs/API_PROVIDERS.md](docs/API_PROVIDERS.md) | Required subscriptions and credentials, costs, rate limits |
 | [docs/TESTING.md](docs/TESTING.md) | Test suites, what they cover, how to run them |
+| [docs/CLAUDE_ARTIFACT.md](docs/CLAUDE_ARTIFACT.md) | Browser-only demo build that runs inside a Claude artifact |
 
 ## Scripts
 

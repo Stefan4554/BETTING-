@@ -2,7 +2,7 @@
   "name": "edge-intelligence",
   "version": "0.1.0",
   "private": true,
-  "description": "EDGE INTELLIGENCE — tennis-first sports analytics and betting intelligence terminal",
+  "description": "EDGE INTELLIGENCE \u2014 tennis-first sports analytics and betting intelligence terminal",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts"
+    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
+    "build:artifact": "node artifact/build.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -37,6 +38,8 @@
     "@types/react-dom": "^19.3.0",
     "tailwindcss": "^4.3.5",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.4.31"
   }
 }
