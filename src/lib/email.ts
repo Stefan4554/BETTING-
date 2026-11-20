@@ -1,20 +1,21 @@
 import "server-only";
 import { env } from "./env";
-import type { AlertEvent } from "./engine/alerts";
 
-/** Optional email delivery via Resend (https://resend.com). No key → in-app only. */
-export async function sendAlertEmail(to: string, events: AlertEvent[]): Promise<boolean> {
+/**
+ * Email delivery for alerts (prepared integration). Uses Resend when RESEND_API_KEY and
+ * ALERTS_FROM_EMAIL are set; otherwise alerts stay in-app only and this returns false.
+ */
+export async function sendAlertEmail(to: string, alerts: { title: string; body: string | null }[]): Promise<boolean> {
   const { RESEND_API_KEY, ALERTS_FROM_EMAIL } = env();
-  if (!RESEND_API_KEY || !ALERTS_FROM_EMAIL) return false;
+  if (!RESEND_API_KEY || !ALERTS_FROM_EMAIL || !alerts.length) return false;
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: ALERTS_FROM_EMAIL,
-      to,
-      subject: `EDGE alerts: ${events[0]!.title}${events.length > 1 ? ` (+${events.length - 1})` : ""}`,
-      html: events.map((e) => `<p><b>${esc(e.title)}</b><br/>${esc(e.body)}</p>`).join("") + "<p style='color:#888'>Analytics only — no outcome is guaranteed.</p>",
+      from: ALERTS_FROM_EMAIL, to,
+      subject: `Betting Edge Pro: ${alerts[0]!.title}${alerts.length > 1 ? ` (+${alerts.length - 1})` : ""}`,
+      html: alerts.map((a) => `<p><b>${esc(a.title)}</b><br/>${esc(a.body ?? "")}</p>`).join(""),
     }),
   });
   return res.ok;

@@ -9,7 +9,11 @@ import { createServerClient } from "@supabase/ssr";
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return NextResponse.next();
+  if (!url || !key) {
+    const p = req.nextUrl.pathname;
+    if (p === "/setup" || p.startsWith("/_next") || p.startsWith("/api/")) return NextResponse.next();
+    return NextResponse.redirect(new URL("/setup", req.url));
+  }
 
   let res = NextResponse.next({ request: req });
   const sb = createServerClient(url, key, {
@@ -24,7 +28,7 @@ export async function middleware(req: NextRequest) {
   });
   const { data } = await sb.auth.getUser();
   const path = req.nextUrl.pathname;
-  const isPublic = path === "/login" || path.startsWith("/auth/") || path.startsWith("/api/cron/");
+  const isPublic = path === "/login" || path === "/setup" || path.startsWith("/auth/") || path.startsWith("/api/cron/");
   if (!data.user && !isPublic) {
     if (path.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const login = new URL("/login", req.url);

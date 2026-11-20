@@ -1,44 +1,54 @@
-/** Display formatting. `null`/`undefined` always render as an explicit missing marker. */
+/** Display formatting. null/undefined/non-finite always render as an explicit missing marker. */
 export const MISSING = "—";
+const ok = (x: number | null | undefined): x is number => x != null && Number.isFinite(x);
 
-export function fmtOdds(x: number | null | undefined) {
-  return x == null ? MISSING : x.toFixed(2);
-}
+export function fmtOdds(x: number | null | undefined, digits = 2) { return ok(x) ? x.toFixed(digits) : MISSING; }
 export function fmtPct(x: number | null | undefined, digits = 1, signed = false) {
-  if (x == null || !Number.isFinite(x)) return MISSING;
+  if (!ok(x)) return MISSING;
   const s = (x * 100).toFixed(digits) + "%";
   return signed && x > 0 ? "+" + s : s;
 }
-export function fmtNum(x: number | null | undefined, digits = 0) {
-  return x == null || !Number.isFinite(x) ? MISSING : x.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+export function fmtPp(x: number | null | undefined, digits = 2) {
+  if (!ok(x)) return MISSING;
+  return (x > 0 ? "+" : "") + (x * 100).toFixed(digits) + "pp";
 }
-export function fmtMoney(x: number | null | undefined, ccy = "EUR") {
-  if (x == null) return MISSING;
-  return x.toLocaleString("en-GB", { style: "currency", currency: ccy, maximumFractionDigits: 2 });
+export function fmtNum(x: number | null | undefined, digits = 0) {
+  return ok(x) ? x.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : MISSING;
+}
+export function fmtMoney(x: number | null | undefined, ccy = "EUR", signed = false) {
+  if (!ok(x)) return MISSING;
+  const s = Math.abs(x).toLocaleString("en-GB", { style: "currency", currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (x < 0 && Math.abs(x) >= 0.005) return "−" + s;
+  return signed && x >= 0.005 ? "+" + s : s;
+}
+export function fmtCompactMoney(x: number | null | undefined, ccy = "EUR") {
+  if (!ok(x)) return MISSING;
+  return x.toLocaleString("en-GB", { style: "currency", currency: ccy, notation: "compact", maximumFractionDigits: 1 });
+}
+export function fmtDate(iso: string | null | undefined) {
+  if (!iso) return MISSING;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" });
 }
 export function fmtTime(iso: string | null | undefined) {
   if (!iso) return MISSING;
-  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + "Z";
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 }
 export function fmtDateTime(iso: string | null | undefined) {
   if (!iso) return MISSING;
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" }) + " " + fmtTime(iso);
+  return `${fmtDate(iso)} ${fmtTime(iso)}`;
 }
-export function fmtAgo(iso: string | null | undefined, now = Date.now()) {
+export function fmtAgo(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return MISSING;
-  const s = Math.round((now - Date.parse(iso)) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  const raw = Math.round((now - Date.parse(iso)) / 1000);
+  const s = Math.abs(raw);
+  const v = s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
+  return raw < 0 ? `in ${v}` : `${v} ago`;
 }
-export function ratio(a: number | null | undefined, b: number | null | undefined) {
-  return a == null || b == null || b === 0 ? null : a / b;
-}
-export const SURFACE_LABEL: Record<string, string> = { hard: "Hard", clay: "Clay", grass: "Grass", indoor_hard: "Indoor", carpet: "Carpet", unknown: "Unknown" };
-export const MARKET_LABEL: Record<string, string> = {
-  match_winner: "Match winner", set_winner: "Set winner", game_handicap: "Game handicap", set_handicap: "Set handicap",
-  total_games: "Total games", total_sets: "Total sets", correct_score: "Correct score", player_prop: "Player prop",
+export const STATUS_LABEL: Record<string, string> = {
+  pending: "Pending", won: "Won", lost: "Lost", void: "Void", half_won: "Half won", half_lost: "Half lost", cashed_out: "Cashed out",
 };
-export const TOUR_LABEL: Record<string, string> = { atp: "ATP", wta: "WTA", challenger: "Challenger", itf_men: "ITF M", itf_women: "ITF W", grand_slam: "Grand Slam", other: "Other" };
+export const TX_LABEL: Record<string, string> = {
+  deposit: "Deposit", withdrawal: "Withdrawal", bet_placement: "Bet placed", bet_settlement: "Bet settled", cashout: "Cash-out",
+  bet_reversal: "Reversal", transfer_in: "Transfer in", transfer_out: "Transfer out", adjustment: "Adjustment", trade_settlement: "Trade settled",
+};
+export const CURRENCIES = ["EUR", "USD", "GBP", "CHF", "AUD", "CAD", "SEK", "NOK", "DKK", "PLN", "CZK", "JPY", "BRL", "INR", "NZD", "ZAR"];

@@ -1,54 +1,85 @@
 @import "tailwindcss";
 
-/* EDGE INTELLIGENCE design tokens — dark navy/charcoal terminal */
+/* BETTING EDGE PRO — institutional terminal tokens. Themes swap the CSS variables. */
 @theme {
-  --color-bg: #0a0e14;
-  --color-panel: #0f141c;
-  --color-panel-2: #131a24;
-  --color-raised: #18212d;
-  --color-line: #1f2a37;
-  --color-line-strong: #2b3a4c;
-  --color-fg: #d7dee8;
-  --color-muted: #7d8a9c;
-  --color-dim: #556173;
-  --color-accent: #3b82f6;
-  --color-accent-soft: #1e3a66;
-  --color-up: #22c55e;
-  --color-up-soft: #0f2e1c;
-  --color-down: #ef4444;
-  --color-down-soft: #3a1414;
-  --color-warn: #f59e0b;
-  --color-warn-soft: #3a2a0a;
-  --color-demo: #a855f7;
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-dim: var(--dim);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-up: var(--up);
+  --color-up-soft: var(--up-soft);
+  --color-down: var(--down);
+  --color-down-soft: var(--down-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-demo: var(--demo);
 
   --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jbm), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0f12; --panel: #13161b; --panel-2: #171b21; --raised: #1d222a;
+  --line: #232a33; --line-strong: #2f3843;
+  --fg: #e2e6ec; --muted: #8a94a3; --dim: #5c6675;
+  --accent: #3987e5; --accent-soft: #15345c;
+  --up: #22c55e; --up-soft: #0f2a1a; --down: #ef4444; --down-soft: #351416;
+  --warn: #f59e0b; --warn-soft: #33260a; --demo: #a855f7;
+  /* chart series (validated categorical order, dark steps) */
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+}
+[data-theme="darker"] {
+  --bg: #050607; --panel: #0a0b0d; --panel-2: #0e1013; --raised: #14171b; --line: #1a1e24; --line-strong: #252b33;
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f4f6; --panel: #ffffff; --panel-2: #f8f9fa; --raised: #eef0f3;
+  --line: #e2e5ea; --line-strong: #cdd2d9;
+  --fg: #111418; --muted: #5a6472; --dim: #8b94a1;
+  --accent: #2a78d6; --accent-soft: #dbe9fb;
+  --up: #15803d; --up-soft: #dcf5e4; --down: #c62828; --down-soft: #fde2e2;
+  --warn: #b45309; --warn-soft: #fdf0d8; --demo: #7e22ce;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+}
+
 @layer base {
-  html { color-scheme: dark; }
   body {
-    background: var(--color-bg);
-    color: var(--color-fg);
+    background: var(--bg);
+    color: var(--fg);
     font-family: var(--font-sans);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "tnum" 1;
   }
-  * { border-color: var(--color-line); }
-  ::selection { background: var(--color-accent-soft); }
+  * { border-color: var(--line); }
+  ::selection { background: var(--accent-soft); }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  :focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
+  :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
 }
 
 @utility num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-@utility label-xs { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted); font-weight: 500; }
+@utility label-xs { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
 
-@keyframes flash-up { from { background: color-mix(in srgb, var(--color-up) 35%, transparent); } to { background: transparent; } }
-@keyframes flash-down { from { background: color-mix(in srgb, var(--color-down) 35%, transparent); } to { background: transparent; } }
+@keyframes flash-up { from { background: color-mix(in srgb, var(--up) 35%, transparent); } to { background: transparent; } }
+@keyframes flash-down { from { background: color-mix(in srgb, var(--down) 35%, transparent); } to { background: transparent; } }
 .flash-up { animation: flash-up 1.2s ease-out; }
 .flash-down { animation: flash-down 1.2s ease-out; }
 @keyframes pulse-dot { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 .live-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+@media print {
+  aside, header.app-topbar, .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
+  main { padding: 0 !important; overflow: visible !important; }
+}

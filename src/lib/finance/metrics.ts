@@ -293,7 +293,7 @@ export function oddsBucket(odds: number): string {
   return ODDS_BUCKETS.find(([lo, hi]) => odds >= lo && odds < hi)?.[2] ?? "—";
 }
 
-export function stakeBuckets(bets: BetRecord[]): string[] {
+export function stakeBuckets(bets: BetRecord[]): number[] {
   const stakes = bets.map((b) => b.stake).sort((a, b) => a - b);
   if (!stakes.length) return [];
   const q = (p: number) => stakes[Math.min(stakes.length - 1, Math.floor(p * stakes.length))]!;
