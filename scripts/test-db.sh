@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Applies all migrations to a throwaway Postgres database and runs SQL tests.
-# Requires a local PostgreSQL superuser connection (PG* env vars or local socket).
+# Database tests: applies every migration to a scratch database and runs the SQL test suites.
+#
+#   Plain PostgreSQL (CI):  PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres bash scripts/test-db.sh
+#   Local Supabase stack:   SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash scripts/test-db.sh
+#     (with SUPABASE_DB_URL the tests run against the already-migrated local stack, inside a
+#      transaction that is rolled back)
 set -euo pipefail
-DB="${TEST_DB:-edge_test}"
 cd "$(dirname "$0")/.."
-psql -q -c "drop database if exists $DB" -c "create database $DB"
-psql -v ON_ERROR_STOP=1 -q -d "$DB" -f supabase/tests/supabase_stubs.sql 2>/dev/null
+if [[ -n "${SUPABASE_DB_URL:-}" ]]; then
+  psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/tests/financial_test.sql
+  exit 0
+fi
+DB="${TEST_DB:-bep_test}"
+psql -q -d postgres -c "drop database if exists $DB" -c "create database $DB"
+psql -v ON_ERROR_STOP=1 -q -d "$DB" -f supabase/tests/supabase_stubs.sql
 for f in supabase/migrations/*.sql; do psql -v ON_ERROR_STOP=1 -q -d "$DB" -f "$f"; done
-psql -v ON_ERROR_STOP=1 -q -d "$DB" -f supabase/tests/rls_test.sql
+psql -v ON_ERROR_STOP=1 -q -d "$DB" -f supabase/tests/financial_test.sql
