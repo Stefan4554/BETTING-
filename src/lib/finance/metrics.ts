@@ -39,6 +39,7 @@ export interface BetRecord {
   bookmaker: string | null;
   strategy: string | null;
   market: string;
+  selection?: string;
   marketCategory: string | null;
   eventName: string;
   eventId: string | null;

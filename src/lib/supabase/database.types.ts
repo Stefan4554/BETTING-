@@ -767,6 +767,9 @@ isOneToOne: false
 "capture_closing_odds":
 { Args: Record<PropertyKey, never>; Returns: number
                            },
+"capture_closing_odds_for":
+{ Args: { "p_user": string }; Returns: number
+                           },
 "clear_demo_data":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -795,6 +798,11 @@ isOneToOne: false
                            },
 "import_bets":
 { Args: { "p_bankroll": string,"p_rows": Json,"p_skip_duplicates"?: boolean }; Returns: Json
+                           },
+"latest_snapshots":
+{ Args: { "p_markets": (string)[] }; Returns: {
+              "bookmaker_id": string,"captured_at": string,"line": number,"market_id": string,"odds": number,"selection": string,"suspended": boolean
+            }[]
                            },
 "mark_closing_odds":
 { Args: Record<PropertyKey, never>; Returns: number
@@ -958,6 +966,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"prune_odds_history":
+{ Args: { "p_days"?: number }; Returns: number
+                           },
 "record_transaction":
 { Args: { "p_amount": number,"p_bankroll": string,"p_note"?: string,"p_occurred_at"?: string,"p_type": Database["public"]['Enums']["tx_type"] }; Returns: {
               "amount": number,

@@ -28,3 +28,10 @@ export async function recentAlerts() {
     return data ?? [];
   }, false);
 }
+
+export async function marketHistory(marketId: string) {
+  return run(async () => {
+    const { loadMarketHistory } = await import("@/lib/server/odds");
+    return loadMarketHistory(await getContext(), z.string().uuid().parse(marketId));
+  }, false);
+}

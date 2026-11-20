@@ -28,8 +28,9 @@ export interface UsageRecord {
 
 type UsageSink = (r: UsageRecord) => void | Promise<void>;
 const sinks: UsageSink[] = [];
-export function onUsage(sink: UsageSink) {
+export function onUsage(sink: UsageSink): () => void {
   sinks.push(sink);
+  return () => { const i = sinks.indexOf(sink); if (i >= 0) sinks.splice(i, 1); };
 }
 
 /** In-process usage counters (per server instance) for the API Management page. */

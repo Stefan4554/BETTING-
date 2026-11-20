@@ -163,15 +163,19 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     const pH = 0.3 + r() * 0.35, pD = 0.22 + r() * 0.08, pA = Math.max(0.08, 1 - pH - pD);
     const sels: [string, number][] = [[h, pH], ["Draw", pD], [a, pA]];
     const snapshots: Json[] = [];
+    // One shared market path (all books move together) + small per-book noise; margins 2.5–7%.
+    const path = sels.map(() => [0]);
+    for (let k = 1; k < 8; k++) sels.forEach((_, j) => path[j]!.push(path[j]![k - 1]! + (r() - 0.5) * 0.015 + (i === 0 && j === 0 ? -0.006 : 0)));
     for (const bk of ["pinnacle", "bet365", "williamhill", "unibet", "betway"]) {
-      const m = bk === "pinnacle" ? 1.025 : 1.045 + r() * 0.03;
-      for (const [sel, p] of sels) {
-        let drift = 0;
-        for (let k = 0; k < 8; k++) {
-          drift += (r() - 0.5) * 0.02 + (i === 0 && sel === h ? -0.006 : 0);
-          const px = Math.max(1.05, round(1 / ((p + drift) * m) * (i === 3 && bk === "unibet" && sel === a ? 1.12 : 1), 2));
+      const m = bk === "pinnacle" ? 1.026 : 1.045 + r() * 0.025;
+      for (let k = 0; k < 8; k++) {
+        const raw = sels.map(([, p], j) => Math.max(0.02, p + path[j]![k]! + (r() - 0.5) * 0.006));
+        const sum = raw.reduce((a, b) => a + b, 0);
+        sels.forEach(([sel], j) => {
+          const boost = i === 3 && bk === "unibet" && sel === a ? 1.12 : 1; // one deliberate price error to demo arbitrage detection
+          const px = Math.max(1.05, round((1 / ((raw[j]! / sum) * m)) * boost, 2));
           snapshots.push({ bookmaker: bk, selection: sel, odds: px, at: iso(now.getTime() - (24 - k * 3) * 3_600_000), suspended: i === 5 && k === 7 && bk === "bet365" });
-        }
+        });
       }
     }
     events.push({ ref: `demo-ev-${i}`, name: `${h} v ${a}`, home: h, away: a, sport_key: "football", start_time: iso(kick), status: "scheduled",

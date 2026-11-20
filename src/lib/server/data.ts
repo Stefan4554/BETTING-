@@ -65,7 +65,7 @@ export function toRecords(rows: BetRow[], fx: FxTable, displayCurrency: string):
       openingOdds: b.opening_odds == null ? null : Number(b.opening_odds),
       closingOdds: b.closing_odds == null ? null : Number(b.closing_odds),
       isLive: b.is_live, sport: b.sports?.name ?? "Other", league: b.leagues?.name ?? null,
-      bookmaker: b.bookmakers?.name ?? null, strategy: b.strategies?.name ?? null, market: b.market,
+      bookmaker: b.bookmakers?.name ?? null, strategy: b.strategies?.name ?? null, market: b.market, selection: b.selection,
       marketCategory: b.market_category, eventName: b.event_name, eventId: b.event_id, correlationGroup: b.correlation_group,
       bankrollId: b.bankroll_id, tags: b.tags,
     });
