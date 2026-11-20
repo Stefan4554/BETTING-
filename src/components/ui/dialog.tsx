@@ -9,7 +9,7 @@ export const DialogTrigger = D.Trigger;
 export const DialogClose = D.Close;
 
 export function DialogContent({ className, children, title, description, wide, ...props }:
-  React.ComponentProps<typeof D.Content> & { title: React.ReactNode; description?: React.ReactNode; wide?: boolean }) {
+  React.ComponentProps<typeof D.Content> & { title: string; description?: React.ReactNode; wide?: boolean }) {
   return (
     <D.Portal>
       <D.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px]" />

@@ -158,3 +158,13 @@ export async function deleteView(id: string) {
 export async function captureClosingOdds() {
   return run(async () => { const ctx = await getContext(); return must(await ctx.sb.rpc("capture_closing_odds")); });
 }
+
+/** Manually record the closing price of a bet (CLV). */
+export async function setClosingOdds(id: string, odds: number | null) {
+  return run(async () => {
+    const ctx = await getContext();
+    const v = odds == null ? null : z.number().gt(1).parse(odds);
+    must(await ctx.sb.rpc("update_bet", { p_bet: id, p: { closing_odds: v } as never }));
+    return id;
+  });
+}
