@@ -1,8 +1,8 @@
 {
-  "name": "edge-intelligence",
+  "name": "betting-edge-pro",
   "version": "0.1.0",
   "private": true,
-  "description": "EDGE INTELLIGENCE — tennis-first sports analytics and betting intelligence terminal",
+  "description": "BETTING EDGE PRO \u2014 professional sports betting tracking, bankroll management and quantitative analytics",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,12 +10,17 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "bash scripts/test-db.sh",
+    "test:parity": "vitest run tests/parity.db.test.ts",
+    "test:e2e": "bash tests/e2e/run.sh",
     "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@hookform/resolvers": "^7.0.8",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.2",

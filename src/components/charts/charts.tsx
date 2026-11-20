@@ -139,7 +139,8 @@ export function CategoryBars({ data, labelKey = "key", valueKey, name, format = 
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 0 }} barCategoryGap={4}>
         <CartesianGrid stroke="var(--line)" horizontal={false} />
         <XAxis type="number" {...axis} tickFormatter={(v: number) => fmtValue(v, format, ccy, true)} />
-        <YAxis type="category" dataKey={labelKey} {...axis} width={110} tick={{ fill: "var(--fg)", fontSize: 11 }} />
+        <YAxis type="category" dataKey={labelKey} {...axis} width={140} interval={0} tick={{ fill: "var(--fg)", fontSize: 11 }}
+          tickFormatter={(v: string) => (String(v).length > 22 ? String(v).slice(0, 21) + "…" : String(v))} />
         <ReferenceLine x={0} stroke="var(--line-strong)" />
         <Tooltip content={<TooltipBox format={format} ccy={ccy} labelFormat="raw" />} cursor={{ fill: "var(--raised)" }} />
         <Bar dataKey={valueKey} name={name} radius={[3, 3, 3, 3]} maxBarSize={16} isAnimationActive={false}>

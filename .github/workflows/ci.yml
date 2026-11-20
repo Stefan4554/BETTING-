@@ -15,7 +15,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-        env: { NEXT_PUBLIC_DEMO_MODE: "true", NEXT_TELEMETRY_DISABLED: "1" }
+        env: { NEXT_TELEMETRY_DISABLED: "1" }
 
   database:
     runs-on: ubuntu-latest
@@ -29,4 +29,11 @@ jobs:
     env: { PGHOST: localhost, PGUSER: postgres, PGPASSWORD: postgres }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      # Applies every migration to a scratch DB and runs the SQL financial/RLS suite.
       - run: bash scripts/test-db.sh
+      # TS engine ↔ SQL settlement parity on the migrated scratch DB.
+      - run: npm run test:parity
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bep_test" }

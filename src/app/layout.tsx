@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
-import { IBM_Plex_Sans, JetBrains_Mono } from "next/font/google";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-sans/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
 import { Toaster } from "sonner";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 
-const plex = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-plex" });
-const jbm = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-jbm" });
 
 export const metadata: Metadata = {
   title: { default: "Betting Edge Pro", template: "%s · Betting Edge Pro" },
@@ -19,7 +22,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const theme = (await cookies()).get("bep_theme")?.value;
   const t = theme === "light" || theme === "darker" ? theme : "dark";
   return (
-    <html lang="en" data-theme={t} className={`${plex.variable} ${jbm.variable}`}>
+    <html lang="en" data-theme={t}>
       <body>
         <Providers>{children}</Providers>
         <Toaster theme={t === "light" ? "light" : "dark"} position="bottom-right" richColors closeButton toastOptions={{ style: { fontSize: 12 } }} />

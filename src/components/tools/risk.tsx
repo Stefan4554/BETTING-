@@ -59,7 +59,7 @@ export function RiskView({ state, limits, enforce, breaches, drawdown, equity, c
         <Kpi label="Concentration" value={fmtPct(state.concentration)} sub={`largest event · HHI ${state.hhi?.toFixed(2) ?? "—"}`} tone={(state.concentration ?? 0) > 0.4 ? "warn" : "neutral"} />
       </div>
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Panel title="Risk limits" subtitle={f.enforce ? "ENFORCED — breaching bets are rejected by the database" : "alert-only"} bodyClassName="grid grid-cols-2 gap-2 p-3">
+        <Panel title="Risk limits" subtitle={f.enforce ? "ENFORCED — breaching bets are rejected by the database" : "alert-only"} bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
           <Label>Max stake per bet ({c})<Input inputMode="decimal" value={f.max_stake_per_bet} onChange={set("max_stake_per_bet")} /></Label>
           <Label>Max % bankroll per bet<Input inputMode="decimal" value={f.max_bet_pct_bankroll} onChange={set("max_bet_pct_bankroll")} /></Label>
           <Label>Max exposure per event<Input inputMode="decimal" value={f.max_event_exposure} onChange={set("max_event_exposure")} /></Label>

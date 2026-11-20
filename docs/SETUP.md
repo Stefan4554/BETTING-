@@ -1,71 +1,51 @@
-# Setup
+# Local setup
 
-## Requirements
-
-- Node.js 20+ (22 recommended) and npm
-- For live mode: a Supabase project, plus provider keys (see [API_PROVIDERS.md](API_PROVIDERS.md))
-- Optional: the Supabase CLI for local Postgres, and `psql` for the SQL tests
-
-## 1. Install
+Requirements: Node 20+ (22 recommended), Docker (for the Supabase CLI local stack).
 
 ```bash
 npm install
+npx supabase start          # Postgres :54322, API :54321; prints URL, anon & service keys
+npx supabase db reset       # applies supabase/migrations/* from scratch
 cp .env.example .env.local
-npm run dev
 ```
 
-With `NEXT_PUBLIC_DEMO_MODE=true` (the default in `.env.example`) everything works offline with synthetic data.
+Fill `.env.local`:
 
-## 2. Supabase
-
-1. Create a project at https://supabase.com.
-2. Apply the migrations in order. Either:
-   - **CLI:** `supabase link --project-ref <ref>` then `supabase db push`, or
-   - **SQL editor:** run each file in `supabase/migrations/` in filename order.
-3. Copy **Project URL**, **anon key** and **service_role key** (Settings → API) into `.env.local`.
-4. Auth → URL Configuration: add `http://localhost:3000/auth/callback` and your production `https://<domain>/auth/callback` to the redirect URLs.
-5. Restart `npm run dev`. All pages now need sign-in.
-
-### First admin
-
-Sign up through `/login`, then in the SQL editor:
-
-```sql
-update public.users set role = 'admin' where email = 'you@example.com';
-```
-
-Admins can see **API management** and run provider connection tests.
-
-## 3. Live data
-
-```bash
-NEXT_PUBLIC_DEMO_MODE=false
-THE_ODDS_API_KEY=...
-SPORTRADAR_TENNIS_API_KEY=...        # or API_TENNIS_KEY=...
-SPORTRADAR_TENNIS_ACCESS_LEVEL=trial
-```
-
-`NEXT_PUBLIC_*` values are compiled into the bundle, so restart the dev server (or rebuild) after you change them. Open **API management** and press **Test connection** for each provider.
-
-## 4. Background jobs locally
-
-The cron endpoints need `CRON_SECRET`:
-
-```bash
-export CRON_SECRET=$(openssl rand -hex 32)   # also put it in .env.local
-curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/ingest-matches
-curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/ingest-odds
-curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/evaluate-alerts
-```
-
-Line history, closing odds and model-training data build up from these runs. The prediction engine stays off (with an explanation) until 500 completed matches are stored.
-
-## Troubleshooting
-
-| Symptom | Cause |
+| Variable | Value |
 | --- | --- |
-| Everything says NOT CONNECTED | Live mode without keys. Add keys or set `NEXT_PUBLIC_DEMO_MODE=true`. |
-| Redirect loop to /login | Supabase redirect URL not allowed, or cookies blocked |
-| API management says "Administrators only" | Set `role = 'admin'` for your user (see above) |
-| Odds exist but no history | Cron not running, or `SUPABASE_SERVICE_ROLE_KEY` missing |
-| Predictions "insufficient history" | Not enough completed matches stored yet (needs a backfill, which is phase 2) |
+| `NEXT_PUBLIC_SUPABASE_URL` | `http://127.0.0.1:54321` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon key from `supabase start` |
+| `SUPABASE_SERVICE_ROLE_KEY` | service-role key from `supabase start` |
+| `API_KEY_ENCRYPTION_KEY` | `openssl rand -hex 32` |
+| `CRON_SECRET` | any random string (for calling cron routes locally) |
+
+```bash
+npm run dev                  # http://localhost:3000
+```
+
+1. Register (local Supabase does not require email confirmation by default).
+2. A **Main** bankroll (EUR) is created automatically. Deposit funds in **Bankroll Manager**.
+3. Add bets with **New bet** (or press **N**), or import a CSV/Excel file in the Bet Tracker.
+4. Toggle **DEMO** in the top bar to load the simulated workspace; switch back to **LIVE** at any
+   time. Demo data never mixes with live data.
+
+## Odds data
+
+Go to **Settings → Data sources**, paste a key for The Odds API or API-Football, choose sports or
+leagues to poll (use *Browse sports*), **Test**, then **Fetch now**. Scheduled refresh runs via
+`/api/cron/ingest`; locally you can trigger it with:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/ingest
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/fx    # ECB FX rates
+```
+
+## Exchange rates
+
+Cross-currency bets need a rate. Run the FX job (ECB reference rates, EUR crosses, triangulated
+for other pairs) or add rates manually in **Settings → Currencies & FX**. A bet can also carry an
+explicit rate entered in the bet form.
+
+## Regenerating database types
+
+After changing migrations: `npm run db:types` (requires the local stack).

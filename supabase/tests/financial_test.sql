@@ -12,9 +12,9 @@ insert into auth.users (id, email) values
 
 -- signup bootstrap
 do $$ begin
-  assert (select count(*) from profiles) = 2, 'profiles created';
-  assert (select count(*) from bankrolls where name = 'Main' and not is_demo) = 2, 'main bankroll per user';
-  assert (select count(*) from risk_limits) = 4, 'risk limits live+demo per user';
+  assert (select count(*) from profiles where email like '%@test.local') = 2, 'profiles created';
+  assert (select count(*) from bankrolls b join profiles p on p.id = b.user_id where p.email like '%@test.local' and b.name = 'Main' and not b.is_demo) = 2, 'main bankroll per user';
+  assert (select count(*) from risk_limits r join profiles p on p.id = r.user_id where p.email like '%@test.local') = 4, 'risk limits live+demo per user';
 end $$;
 
 set local role authenticated;
@@ -374,7 +374,7 @@ begin
   assert (select balance from bankrolls where is_demo) = 537, format('demo balance %s', (select balance from bankrolls where is_demo));
   assert (select count(*) from bets where not is_demo) = live_bets, 'live untouched';
   assert (select count(*) from performance_snapshots where is_demo) > 0, 'demo snapshots';
-  assert (select count(*) from odds_snapshots where is_closing) = 1, 'demo closing marked';
+  assert (select count(*) from odds_snapshots where is_closing and owner_id = auth.uid()) = 1, 'demo closing marked';
   assert capture_closing_odds() = 1, 'closing captured from stored snapshots';
   assert (select closing_odds from bets where is_demo) = 1.95, 'closing = last pre-start price';
   assert (select closing_source from bets where is_demo) = 'snapshot:pinnacle', 'closing source labelled';

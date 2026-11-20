@@ -46,7 +46,7 @@ export function StakingCalculator({ defaults }: { defaults: { bankroll: number; 
     <div className="flex flex-col gap-3">
       <PageHeader title="Staking & Kelly Calculator" description="f* = (b·p − q) / b with b = odds − 1, q = 1 − p. Negative edges never produce a stake." />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Panel title="Inputs" bodyClassName="grid grid-cols-2 gap-2 p-3">
+        <Panel title="Inputs" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
           <Label>Bankroll ({c})<Input inputMode="decimal" value={f.bankroll} onChange={set("bankroll")} /></Label>
           <Label>Decimal odds<Input inputMode="decimal" value={f.odds} onChange={set("odds")} placeholder="2.10, +110, 11/10" /></Label>
           <Label>Estimated probability %<Input inputMode="decimal" value={f.prob} onChange={set("prob")} /></Label>

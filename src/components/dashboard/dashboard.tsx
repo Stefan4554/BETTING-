@@ -13,15 +13,17 @@ import { updateSettings } from "@/app/actions/settings";
 import { change } from "@/lib/finance/metrics";
 import { fmtMoney, fmtNum, fmtOdds, fmtPct, fmtPp } from "@/lib/format";
 import { useNewBet } from "@/components/app/app-data";
+import type { GoalProgress } from "@/lib/server/goals";
+import { GoalsPanel } from "./goals";
 
 export const WIDGETS = [
   ["cum_pnl", "Cumulative P&L"], ["equity", "Bankroll equity curve"], ["daily", "Daily P&L"], ["weekly", "Weekly P&L"], ["monthly", "Monthly P&L"],
   ["roi", "ROI over time"], ["clv", "CLV over time"], ["winrate", "Win rate trend"], ["by_sport", "Profit by sport"], ["by_bookmaker", "Profit by bookmaker"],
-  ["by_strategy", "Profit by strategy"], ["odds_dist", "Odds distribution"], ["stake_dist", "Stake distribution"], ["exposure", "Risk exposure"],
+  ["by_strategy", "Profit by strategy"], ["odds_dist", "Odds distribution"], ["stake_dist", "Stake distribution"], ["exposure", "Risk exposure"], ["goals", "Goals"],
 ] as const;
 type WidgetId = (typeof WIDGETS)[number][0];
 
-export function DashboardView({ a, widgets, rangeLabel, hasPrevious }: { a: Analytics; widgets: string[]; rangeLabel: string; hasPrevious: boolean }) {
+export function DashboardView({ a, widgets, rangeLabel, hasPrevious, goals }: { a: Analytics; widgets: string[]; rangeLabel: string; hasPrevious: boolean; goals: GoalProgress[] }) {
   const s = a.summary, p = a.previous, c = a.currency;
   const [custom, setCustom] = React.useState(false);
   const newBet = useNewBet();
@@ -60,6 +62,7 @@ export function DashboardView({ a, widgets, rangeLabel, hasPrevious }: { a: Anal
     stake_dist: <Panel title="Stake distribution" subtitle={`quartile buckets, ${c}`}><Histogram data={a.byStake.map((r) => ({ key: r.key, count: r.bets }))} /></Panel>,
     exposure: <Panel title="Risk exposure" subtitle={`open ${fmtMoney(a.risk.totalExposure, c)}`}>
       {exposureRows.length ? <CategoryBars data={exposureRows} valueKey="exposure" name="Open exposure" ccy={c} signed={false} color="var(--warn)" /> : <p className="p-6 text-center text-xs text-dim">No open positions</p>}</Panel>,
+    goals: <GoalsPanel goals={goals} currency={c} convention={a.convention} />,
   };
 
   return (

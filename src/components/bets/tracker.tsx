@@ -332,8 +332,8 @@ export function BetTracker({ bets, views, convention, focusBet, openImport, trun
 
       {editing && <BetFormDialog open onOpenChange={(o) => !o && setEditing(null)} existing={{ ...editing, bet_legs: editing.legs } as never} />}
       {settling && <SettleDialog bet={settling} onClose={() => setSettling(null)} />}
-      {detail && <BetDetail bet={detail} convention={convention} onClose={() => setDetail(null)} onEdit={() => { setEditing(detail); setDetail(null); }} onSettle={() => { setSettling(detail); setDetail(null); }} />}
-      <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      {detail && <BetDetail bet={detail} convention={convention} onClose={() => { setDetail(null); if (focusBet) router.replace("/bets"); }} onEdit={() => { setEditing(detail); setDetail(null); }} onSettle={() => { setSettling(detail); setDetail(null); }} />}
+      <ImportDialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o && openImport) router.replace("/bets"); }} />
       <BulkEditDialog open={bulkEdit} onOpenChange={setBulkEdit} ids={selectedIds} onDone={() => { setSelection({}); router.refresh(); }} />
       {busy && <div className="fixed bottom-3 left-1/2 z-50 -translate-x-1/2 rounded bg-raised px-3 py-1 text-xs text-muted"><Scissors className="mr-1 inline h-3 w-3" />Working…</div>}
     </div>

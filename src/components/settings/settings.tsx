@@ -66,19 +66,19 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
   };
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <Panel title="Display" bodyClassName="grid grid-cols-2 gap-2 p-3">
+      <Panel title="Display" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label>Odds format<Select value={f.odds_format} onChange={set("odds_format")}><option value="decimal">Decimal (2.50)</option><option value="american">American (+150)</option><option value="fractional">Fractional (3/2)</option></Select></Label>
         <Label>Theme<Select value={f.theme} onChange={set("theme")}><option value="dark">Charcoal (dark)</option><option value="darker">Black (OLED)</option><option value="light">Light</option></Select></Label>
         <Label>Timezone<Input value={f.timezone} onChange={set("timezone")} /></Label>
         <Label>Default bankroll<Select value={f.default_bankroll_id} onChange={set("default_bankroll_id")}><option value="">First bankroll</option>{app.bankrolls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Label>
       </Panel>
-      <Panel title="Analytics conventions" bodyClassName="grid grid-cols-2 gap-2 p-3">
+      <Panel title="Analytics conventions" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label className="col-span-2">CLV convention<Select value={f.clv_convention} onChange={set("clv_convention")}><option value="odds">Odds-based: taken / closing − 1</option><option value="probability">Probability-based: closing implied − entry implied (pp)</option></Select></Label>
         <Label className="col-span-2">CLV reference market (closing prices)<Select value={f.clv_reference_bookmaker} onChange={set("clv_reference_bookmaker")}><option value="">Each bet&apos;s own bookmaker</option>{app.bookmakers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Label>
         <Label>Default Kelly fraction<Input inputMode="decimal" value={f.default_kelly_fraction} onChange={set("default_kelly_fraction")} /></Label>
         <Label>Unit size<Input inputMode="decimal" value={f.unit_size} onChange={set("unit_size")} /></Label>
       </Panel>
-      <Panel title="Notifications" bodyClassName="grid grid-cols-2 gap-2 p-3">
+      <Panel title="Notifications" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label>Large profit/loss alert ≥<Input inputMode="decimal" value={f.large_result} onChange={set("large_result")} /></Label>
         <Label>Odds movement alert ≥ %<Input inputMode="decimal" value={f.odds_move_pct} onChange={set("odds_move_pct")} /></Label>
         <label className="col-span-2 flex items-center gap-1.5 text-xs"><Checkbox checked={f.email} onChange={(e) => setF({ ...f, email: e.target.checked })} /> Also email critical alerts (requires the server email integration)</label>

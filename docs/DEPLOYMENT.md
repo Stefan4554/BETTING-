@@ -1,39 +1,41 @@
-# Deployment (Vercel + Supabase)
+# Deployment (Supabase + Vercel)
 
-## Steps
+## 1. Supabase
 
-1. Push the repository to GitHub and import it in Vercel (framework: Next.js).
-2. Set the environment variables from `.env.example` in Vercel → Settings → Environment Variables, for Production (and Preview if wanted). Mark keys as **Sensitive**.
-3. Set `CRON_SECRET`. Vercel Cron sends it automatically as `Authorization: Bearer …`.
-4. Deploy. The `vercel.json` cron schedule is:
+1. Create a project. Note the project URL, anon key and service-role key (Settings → API).
+2. Apply migrations: `npx supabase link --project-ref <ref>` then `npx supabase db push`.
+3. Auth → URL configuration: set the site URL to your Vercel domain and add
+   `https://<domain>/auth/callback` to redirect URLs. Enable email confirmations as required.
+4. Optional: Auth → rate limits and SMTP for production email.
 
-| Path | Schedule | Purpose |
-| --- | --- | --- |
-| `/api/cron/ingest-odds` | every 10 min | Snapshot all tennis odds into `odds_snapshots` (unchanged prices skipped) and mark closing odds |
-| `/api/cron/ingest-matches` | every 15 min | Upsert schedules and results, and store final match statistics |
-| `/api/cron/evaluate-alerts` | every 10 min | Evaluate alert rules, write notifications (Realtime pushes them) and send email |
+## 2. Vercel
 
-> **Vercel plan:** sub-daily cron schedules need **Vercel Pro**. On Hobby, use an external scheduler (GitHub Actions `schedule:`, Supabase `pg_cron` + `pg_net`, or cron-job.org) that calls the same URLs with the bearer header.
+1. Import the GitHub repository (framework: Next.js).
+2. Environment variables (Production + Preview):
 
-> **Quota:** at a 10-minute interval, The Odds API uses roughly `markets × regions × active tournaments × 4,320` credits a month. Adjust the schedule to fit your plan.
+| Variable | Notes |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only — never prefix with `NEXT_PUBLIC_` |
+| `API_KEY_ENCRYPTION_KEY` | `openssl rand -hex 32`; keep it stable (rotating invalidates stored provider keys) |
+| `CRON_SECRET` | random; Vercel Cron sends it as a bearer token |
+| `THE_ODDS_API_KEY`, `PLATFORM_ODDS_SPORTS`, `PLATFORM_ODDS_REGIONS` | optional shared feed |
+| `RESEND_API_KEY`, `ALERTS_FROM_EMAIL` | optional email alerts |
 
-5. In Supabase Auth, add `https://<your-domain>/auth/callback` to the redirect URLs.
-6. Create your admin user (see SETUP.md).
+3. `vercel.json` schedules:
+   * `/api/cron/ingest` every 10 minutes (each connection is polled only when its own refresh
+     interval — at least the provider minimum — has elapsed),
+   * `/api/cron/fx` weekdays 16:30 UTC (ECB publishes around 16:00 CET),
+   * `/api/cron/maintenance` nightly (closing-price marking, CLV capture, history pruning).
+
+   Cron frequency depends on your Vercel plan; on plans with daily-only cron use an external
+   scheduler calling the same routes with the bearer token.
 
 ## Production checklist
 
-- [ ] `NEXT_PUBLIC_DEMO_MODE=false`
-- [ ] Supabase **Pro** with daily backups and point-in-time recovery switched on (Database → Backups). Before running migrations, `supabase db dump` to keep an off-site copy.
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` set **only** as a server variable (never `NEXT_PUBLIC_`)
-- [ ] Rate limiting: the built-in limiter works per serverless instance. For strict global limits, put it on a shared store such as Upstash Redis (`src/lib/api.ts`, `rateLimit`), and consider Vercel WAF rules
-- [ ] Error logging: add Sentry (or Vercel Log Drains). API errors are logged server-side with `console.error` and returned to the client as generic `internal_error`
-- [ ] API monitoring: `api_logs` holds every provider request (status, duration, cost, error). Use a Supabase dashboard query or alert on `status_code >= 400` rates
-- [ ] Check that your data licences allow your intended use
-
-## Data retention
-
-`odds_snapshots` grows fastest. Unchanged prices are skipped, but plan to partition by month, or move snapshots older than N months to cold storage, keeping the `is_closing` rows.
-
-## Rollback
-
-Vercel: promote the previous deployment. Database: migrations are forward-only; restore from a backup or PITR if a migration must be undone.
+- [ ] Migrations applied; `npm run test:db` green in CI.
+- [ ] Service-role key and encryption key set only as server env vars.
+- [ ] Auth redirect URLs restricted to your domains.
+- [ ] Point-in-time recovery / daily backups enabled in Supabase.
+- [ ] Provider plans sized for your polling (see API_PROVIDERS.md) and refresh intervals set.
+- [ ] Users can download a full JSON backup (Settings → Account) — test it.

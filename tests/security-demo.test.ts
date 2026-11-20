@@ -13,7 +13,7 @@ describe("API key encryption", () => {
   });
   it("detects tampering", () => {
     const c = Buffer.from(encryptSecret("abcdefgh"), "base64");
-    c[c.length - 1] ^= 1;
+    c[c.length - 1] = c[c.length - 1]! ^ 1;
     expect(() => decryptSecret(c.toString("base64"))).toThrow();
   });
   it("masks keys", () => expect(last4("abcdef1234")).toBe("1234"));
