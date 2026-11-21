@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
-import { KV, Money, StatusBadge } from "@/components/app/primitives";
+import { KV, Money } from "@/components/app/primitives";
 import { addBetNote, getBetDetail } from "@/app/actions/bets";
 import { clv, marketMovement, type ClvConvention } from "@/lib/finance/clv";
 import { fmtDateTime, fmtPct, fmtPp, MISSING, STATUS_LABEL, TX_LABEL } from "@/lib/format";

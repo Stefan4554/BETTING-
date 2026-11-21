@@ -11,19 +11,20 @@ import { generateReport } from "@/app/actions/reports";
 import { downloadBlob, toCsv } from "@/lib/export";
 import { fmtDateTime } from "@/lib/format";
 
-export function ReportsView({ types, defaultFrom, defaultTo, sports, bookmakers, strategies }: {
-  types: Record<string, string>; defaultFrom: string | null; defaultTo: string | null; sports: string[]; bookmakers: string[]; strategies: string[];
+export function ReportsView({ types, defaultFrom, defaultTo, defaultBasis, sports, bookmakers, strategies }: {
+  types: Record<string, string>; defaultFrom: string | null; defaultTo: string | null; defaultBasis: string; sports: string[]; bookmakers: string[]; strategies: string[];
 }) {
   const [type, setType] = React.useState("monthly");
   const [from, setFrom] = React.useState(defaultFrom ?? "");
   const [to, setTo] = React.useState(defaultTo ?? "");
   const [filter, setFilter] = React.useState("");
+  const [basis, setBasis] = React.useState(defaultBasis);
   const [report, setReport] = React.useState<Report | null>(null);
   const [busy, setBusy] = React.useState(false);
   const filters = type === "sport" ? sports : type === "bookmaker" ? bookmakers : type === "strategy" ? strategies : null;
   const run = async () => {
     setBusy(true);
-    const r = await generateReport(type, from || null, to || null, filter || null);
+    const r = await generateReport(type, from || null, to || null, filter || null, basis);
     setBusy(false);
     if (!r.ok) return toast.error(r.error);
     setReport(r.data);
@@ -85,6 +86,7 @@ export function ReportsView({ types, defaultFrom, defaultTo, sports, bookmakers,
       <Panel bodyClassName="flex flex-wrap items-end gap-2 p-3 no-print">
         <Label>Report<Select value={type} onChange={(e) => { setType(e.target.value); setFilter(""); }} className="w-48">{Object.entries(types).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Label>
         {filters && <Label>Filter<Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-44"><option value="">All</option>{filters.map((f) => <option key={f}>{f}</option>)}</Select></Label>}
+        <Label>Date basis<Select value={basis} onChange={(e) => setBasis(e.target.value)} className="w-36"><option value="placed">Bet placed</option><option value="event">Event start</option><option value="settled">Settlement</option></Select></Label>
         <Label>From<Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Label>
         <Label>To<Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Label>
         <Button onClick={run} disabled={busy}>{busy ? "Generating…" : "Generate"}</Button>

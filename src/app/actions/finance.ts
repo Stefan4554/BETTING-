@@ -114,7 +114,8 @@ export async function addExecution(input: z.input<typeof executionSchema>) {
     const ctx = await getContext();
     const e = executionSchema.parse(input);
     return must(await ctx.sb.rpc("add_trade_execution", {
-      p_trade: e.trade_id, p_side: e.side, p_odds: e.side === "cashout" ? undefined : e.odds, p_stake: e.stake, p_amount: e.amount, p_note: e.note,
+      // every argument without a SQL default must be sent (null, not undefined) or PostgREST cannot resolve the function
+      p_trade: e.trade_id, p_side: e.side, p_odds: e.side === "cashout" ? null : e.odds, p_stake: e.stake, p_amount: e.side === "cashout" ? e.amount : null, p_note: e.note ?? null,
     } as never)).id;
   });
 }

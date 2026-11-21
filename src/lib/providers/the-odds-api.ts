@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { requestJson, ProviderError } from "./http";
-import type { NormalizedEvent, OddsProvider, ProviderConfig, QuotaInfo, TestCheck, TestResult } from "./types";
+import type { NormalizedEvent, OddsProvider, QuotaInfo, TestCheck, TestResult } from "./types";
 import { failedTest } from "./test-helpers";
 
 export const THE_ODDS_API = "the_odds_api";

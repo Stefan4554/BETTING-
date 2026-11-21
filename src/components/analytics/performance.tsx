@@ -7,19 +7,19 @@ import { GroupTable } from "./group-table";
 import { fmtMoney, fmtNum, fmtOdds, fmtPct, fmtPp } from "@/lib/format";
 
 export function PerformanceView({ a, rangeLabel }: { a: Analytics; rangeLabel: string }) {
-  const s = a.summary, c = a.currency;
+  const s = a.summary, c = a.currency, ra = a.riskAdjusted;
   const pf = s.profitFactor == null ? (s.grossLoss === 0 && s.grossWin > 0 ? "∞ (no losses)" : "—") : s.profitFactor.toFixed(2);
   return (
     <div className="flex flex-col gap-3">
-      <PageHeader title="Performance Analytics" description={`${rangeLabel} · ${c} · per-bet risk metrics are not annualised`} />
+      <PageHeader title="Performance Analytics" description={`${rangeLabel} · ${c} · Sharpe / Sortino per bet, daily and annualised (see methodology)`} />
       <SampleWarning n={s.settledBets} />
       {a.unconverted > 0 && <Notice level="warn">{a.unconverted} bets excluded for missing FX rates.</Notice>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         <Kpi label="Net P/L" value={fmtMoney(s.netProfit, c, true)} tone={toneOf(s.netProfit)} />
         <Kpi label="ROI / Yield" value={fmtPct(s.roi, 2, true)} tone={toneOf(s.roi)} />
         <Kpi label="Profit factor" value={pf} />
-        <Kpi label="Sharpe (per bet)" value={s.sharpe?.toFixed(3) ?? "—"} />
-        <Kpi label="Sortino (per bet)" value={s.sortino?.toFixed(3) ?? "—"} />
+        <Kpi label="Sharpe (annualised)" value={ra.annualized.sharpe.value?.toFixed(2) ?? "—"} sub={ra.annualized.sharpe.reason ?? `daily × √${ra.assumptions.periodsPerYear}, n=${ra.daily.observations}d`} hint={ra.annualized.sharpe.reason ?? undefined} />
+        <Kpi label="Sortino (annualised)" value={ra.annualized.sortino.value?.toFixed(2) ?? "—"} sub={ra.annualized.sortino.reason ?? `MAR ${fmtPct(ra.assumptions.marAnnual, 1)} p.a.`} hint={ra.annualized.sortino.reason ?? undefined} />
         <Kpi label="Max drawdown" value={fmtMoney(-s.drawdown.maxAmount, c)} sub={fmtPct(s.drawdown.maxPct)} tone={s.drawdown.maxAmount ? "down" : "neutral"} />
         <Kpi label="Recovery factor" value={s.recoveryFactor?.toFixed(2) ?? "—"} />
         <Kpi label="Risk of ruin" value={s.riskOfRuin == null ? "—" : s.riskOfRuin < 0.0001 ? "<0.01%" : fmtPct(s.riskOfRuin, 2)} sub={s.riskOfRuin == null ? "needs ≥30 bets" : "diffusion approx."} />
@@ -58,6 +58,26 @@ export function PerformanceView({ a, rangeLabel }: { a: Analytics; rangeLabel: s
           <KV k="Live trading P/L (all time)" v={fmtMoney(a.tradePnl, c, true)} />
         </Panel>
       </div>
+      <Panel title="Risk-adjusted returns" subtitle="Sharpe & Sortino by observation frequency">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-panel-2"><tr>{["Frequency", "Observations", "Mean return", "Std. dev.", "Sharpe", "Sortino", "Notes"].map((h) => <th key={h} className="label-xs h-7 px-2 text-left">{h}</th>)}</tr></thead>
+            <tbody>
+              <tr className="border-b border-line/60"><td className="h-8 px-2">Per bet</td><td className="num px-2">{ra.perBet.observations} bets</td><td className="num px-2">{fmtPct(ra.perBet.mean, 2)}</td><td className="num px-2">{fmtPct(ra.perBet.sd, 1)}</td>
+                <td className="num px-2">{ra.perBet.sharpe.value?.toFixed(3) ?? "—"}</td><td className="num px-2">{ra.perBet.sortino.value?.toFixed(3) ?? "—"}</td><td className="px-2 text-dim">{ra.perBet.sharpe.reason ?? "return = profit ÷ stake; not time-based, never annualised"}</td></tr>
+              <tr className="border-b border-line/60"><td className="h-8 px-2">Daily</td><td className="num px-2">{ra.daily.observations} days ({ra.daily.activeDays} active)</td><td className="num px-2">{fmtPct(ra.daily.mean, 3)}</td><td className="num px-2">{fmtPct(ra.daily.sd, 2)}</td>
+                <td className="num px-2">{ra.daily.sharpe.value?.toFixed(3) ?? "—"}</td><td className="num px-2">{ra.daily.sortino.value?.toFixed(3) ?? "—"}</td><td className="px-2 text-dim">{ra.daily.sharpe.reason ?? `${ra.daily.firstDay} → ${ra.daily.lastDay}`}</td></tr>
+              <tr><td className="h-8 px-2">Annualised</td><td className="num px-2">× √{ra.assumptions.periodsPerYear} = {ra.annualized.factor.toFixed(2)}</td><td /><td />
+                <td className="num px-2 font-semibold">{ra.annualized.sharpe.value?.toFixed(2) ?? "—"}</td><td className="num px-2 font-semibold">{ra.annualized.sortino.value?.toFixed(2) ?? "—"}</td><td className="px-2 text-dim">{ra.annualized.sharpe.reason ?? "statistically sufficient sample"}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="border-t border-line p-3 text-[11px] leading-5 text-muted">
+          <b>Methodology.</b> Daily return = {ra.assumptions.returnDefinition} (settlement dates, {a.timeZone}). Sharpe = mean(r − r<sub>f</sub>) / sd(r − r<sub>f</sub>) with r<sub>f</sub> = {fmtPct(ra.assumptions.riskFreeAnnual, 2)} p.a. ({(ra.assumptions.riskFreePerPeriod * 100).toFixed(5)}% per day).
+          Sortino = mean(r − MAR) / downside deviation, MAR = {fmtPct(ra.assumptions.marAnnual, 2)} p.a. Annualised = daily × √{ra.assumptions.periodsPerYear}{ra.assumptions.periodsPerYear === 252 ? " (weekend P/L rolled into Monday)" : ""}.
+          Shown only with ≥ {ra.assumptions.thresholds.minDailyObservations} daily observations and ≥ {ra.assumptions.thresholds.minActiveDays} active days (daily), ≥ {ra.assumptions.thresholds.minAnnualDays} days and ≥ 10% active days (annualised), ≥ {ra.assumptions.thresholds.minBets} bets (per bet). Conventions are configurable in Settings → General.
+        </div>
+      </Panel>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Panel title="Cumulative P&L"><TimeSeries data={a.curve} series={[{ key: "cumProfit", name: "P&L" }]} area ccy={c} /></Panel>
         <Panel title="Monthly P&L"><SignedBars data={a.monthly} xKey="period" yKey="profit" name="P&L" ccy={c} /></Panel>

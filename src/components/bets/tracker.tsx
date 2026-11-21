@@ -23,6 +23,7 @@ import { bulkSettle, bulkUpdate, deleteBets, deleteView, duplicateBet, reopenBet
 import { clv as clvFn, type ClvConvention } from "@/lib/finance/clv";
 import { formatOdds } from "@/lib/finance/odds";
 import { fmtDateTime, fmtPct, fmtPp, MISSING, STATUS_LABEL } from "@/lib/format";
+import { inRange, resolveRange, type DateBasis } from "@/lib/finance/dates";
 import { cn } from "@/lib/utils";
 
 export interface BetView {
@@ -39,9 +40,9 @@ export interface BetView {
 
 interface Filters {
   q: string; status: string; sport: string; bookmaker: string; strategy: string; mode: string; side: string; kind: string;
-  from: string; to: string; minOdds: string; maxOdds: string; tag: string; bankroll: string;
+  from: string; to: string; minOdds: string; maxOdds: string; tag: string; bankroll: string; basis: string;
 }
-const EMPTY: Filters = { q: "", status: "", sport: "", bookmaker: "", strategy: "", mode: "", side: "", kind: "", from: "", to: "", minOdds: "", maxOdds: "", tag: "", bankroll: "" };
+const EMPTY: Filters = { q: "", status: "", sport: "", bookmaker: "", strategy: "", mode: "", side: "", kind: "", from: "", to: "", minOdds: "", maxOdds: "", tag: "", bankroll: "", basis: "" };
 
 const DEFAULT_HIDDEN: VisibilityState = { league: false, line: false, commission: false, est_probability: false, edge: false, opening_odds: false, closing_odds: false, confidence: false, units: false, tags: false, bankroll: false, settled_at: false, payout: false, correlation_group: false };
 
@@ -71,8 +72,8 @@ export function BetTracker({ bets, views, convention, focusBet, openImport, trun
 
   const filtered = React.useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    const from = filters.from ? Date.parse(filters.from) : null;
-    const to = filters.to ? Date.parse(filters.to) + 86_400_000 : null;
+    const basis = (filters.basis || app.range.basis) as DateBasis;
+    const dateRange = filters.from || filters.to ? resolveRange("custom", new Date(), { from: filters.from || null, to: filters.to || null }, app.timeZone, basis) : null;
     return bets.filter((b) => {
       if (q && !`#${b.ref} ${b.event_name} ${b.selection} ${b.market} ${b.notes ?? ""} ${b.tags.join(" ")} ${b.bookmaker ?? ""}`.toLowerCase().includes(q)) return false;
       if (filters.status === "settled" ? b.status === "pending" : filters.status && b.status !== filters.status) return false;
@@ -83,14 +84,13 @@ export function BetTracker({ bets, views, convention, focusBet, openImport, trun
       if (filters.mode && (filters.mode === "live") !== b.is_live) return false;
       if (filters.side && b.side !== filters.side) return false;
       if (filters.kind && b.kind !== filters.kind) return false;
-      if (from && Date.parse(b.placed_at) < from) return false;
-      if (to && Date.parse(b.placed_at) >= to) return false;
+      if (dateRange && !inRange({ placedAt: b.placed_at, settledAt: b.settled_at, eventStart: b.event_start }, dateRange)) return false;
       if (filters.minOdds && b.odds < Number(filters.minOdds)) return false;
       if (filters.maxOdds && b.odds > Number(filters.maxOdds)) return false;
       if (filters.tag && !b.tags.some((t) => t.toLowerCase() === filters.tag.toLowerCase())) return false;
       return true;
     });
-  }, [bets, filters]);
+  }, [bets, filters, app.range.basis, app.timeZone]);
 
   const clvOf = (b: BetView) => (b.kind === "single" ? clvFn(b.odds, b.closing_odds, convention, b.side) : null);
   const evOf = (b: BetView) => (b.est_probability != null && b.side === "back" ? b.stake * (b.est_probability * (b.odds - 1) - (1 - b.est_probability)) : null);
@@ -269,8 +269,9 @@ export function BetTracker({ bets, views, convention, focusBet, openImport, trun
             <Select value={filters.mode} onChange={set("mode")} aria-label="Timing"><option value="">Pre-match & live</option><option value="pre">Pre-match</option><option value="live">Live</option></Select>
             <Select value={filters.side} onChange={set("side")} aria-label="Side"><option value="">Back & lay</option><option value="back">Back</option><option value="lay">Lay</option></Select>
             <Select value={filters.kind} onChange={set("kind")} aria-label="Type"><option value="">Singles & accas</option><option value="single">Singles</option><option value="accumulator">Accumulators</option></Select>
-            <Input type="date" value={filters.from} onChange={set("from")} aria-label="Placed from" />
-            <Input type="date" value={filters.to} onChange={set("to")} aria-label="Placed to" />
+            <Select value={filters.basis || app.range.basis} onChange={set("basis")} aria-label="Date basis"><option value="placed">Date: bet placed</option><option value="event">Date: event start</option><option value="settled">Date: settlement</option></Select>
+            <Input type="date" value={filters.from} onChange={set("from")} aria-label="From date" />
+            <Input type="date" value={filters.to} onChange={set("to")} aria-label="To date" />
             <Input inputMode="decimal" placeholder="Min odds" value={filters.minOdds} onChange={set("minOdds")} />
             <Input inputMode="decimal" placeholder="Max odds" value={filters.maxOdds} onChange={set("maxOdds")} />
             <Input placeholder="Tag" value={filters.tag} onChange={set("tag")} />

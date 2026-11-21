@@ -28,7 +28,8 @@ export async function middleware(req: NextRequest) {
   });
   const { data } = await sb.auth.getUser();
   const path = req.nextUrl.pathname;
-  const isPublic = path === "/login" || path === "/setup" || path.startsWith("/auth/") || path.startsWith("/api/cron/");
+  // cron: bearer CRON_SECRET · webhooks: Svix signature · health: booleans only
+  const isPublic = path === "/login" || path === "/setup" || path.startsWith("/auth/") || path.startsWith("/api/cron/") || path.startsWith("/api/webhooks/") || path === "/api/health";
   if (!data.user && !isPublic) {
     if (path.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const login = new URL("/login", req.url);

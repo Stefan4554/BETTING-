@@ -8,3 +8,4 @@ cd "$(dirname "$0")"
 export E2E_EMAIL="e2e-$(date +%s)@example.com"
 node flow.js
 node flow2.js
+node flow3.js

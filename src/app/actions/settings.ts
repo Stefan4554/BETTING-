@@ -7,7 +7,10 @@ import { must, run } from "./util";
 
 export async function setRange(r: RangeSetting) {
   return run(async () => {
-    const v = z.object({ preset: z.enum(["today", "yesterday", "7d", "30d", "90d", "ytd", "all", "custom"]), from: z.string().date().nullish(), to: z.string().date().nullish() }).parse(r);
+    const v = z.object({
+      preset: z.enum(["today", "yesterday", "7d", "30d", "90d", "mtd", "last_month", "ytd", "all", "custom"]),
+      from: z.string().date().nullish(), to: z.string().date().nullish(), basis: z.enum(["placed", "event", "settled"]).optional(),
+    }).refine((x) => x.preset !== "custom" || !x.from || !x.to || x.from <= x.to, "From must be before To").parse(r);
     (await cookies()).set(RANGE_COOKIE, JSON.stringify(v), { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 365, httpOnly: true });
     return v;
   });
@@ -17,7 +20,11 @@ const settingsSchema = z.object({
   display_currency: z.string().regex(/^[A-Z]{3}$/).optional(),
   odds_format: z.enum(["decimal", "american", "fractional"]).optional(),
   theme: z.enum(["dark", "darker", "light"]).optional(),
-  timezone: z.string().max(60).optional(),
+  timezone: z.string().max(60).refine((t) => { try { new Intl.DateTimeFormat("en-US", { timeZone: t }); return true; } catch { return false; } }, "Unknown IANA time zone").optional(),
+  date_basis: z.enum(["placed", "event", "settled"]).optional(),
+  risk_free_rate: z.number().gt(-1).lt(1).optional(),
+  sortino_mar: z.number().gt(-1).lt(1).optional(),
+  annualization_days: z.union([z.literal(252), z.literal(365)]).optional(),
   clv_convention: z.enum(["odds", "probability"]).optional(),
   clv_reference_bookmaker: z.string().uuid().nullable().optional(),
   default_kelly_fraction: z.number().gt(0).max(1).optional(),

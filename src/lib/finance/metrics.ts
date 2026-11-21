@@ -16,6 +16,7 @@
  */
 import { clv as clvFn, type ClvConvention } from "./clv";
 import { cents, fromCents } from "./decimal";
+import { basisTime, BASIS_LABEL, inRange, localDateKey, periodKey, PRESET_LABEL, previousRange, resolveRange, type DateBasis, type DateRange, type Granularity, type RangePreset } from "./dates";
 import type { BetStatus } from "./settlement";
 
 export interface BetRecord {
@@ -46,6 +47,7 @@ export interface BetRecord {
   correlationGroup: string | null;
   bankrollId: string;
   tags: string[];
+  eventStart?: string | null;
 }
 
 export const MIN_SAMPLE = 30;
@@ -317,22 +319,22 @@ export function stakeBucket(stake: number, edges: number[]): string {
 
 // ── Time series ─────────────────────────────────────────────────────────────
 
-export type Granularity = "day" | "week" | "month";
+export interface SeriesOptions { basis?: DateBasis; timeZone?: string }
 
-export function periodKey(iso: string, g: Granularity): string {
-  const dt = new Date(iso);
-  if (g === "day") return dt.toISOString().slice(0, 10);
-  if (g === "month") return dt.toISOString().slice(0, 7);
-  const dow = (dt.getUTCDay() + 6) % 7; // ISO week, Monday start
-  return new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate() - dow)).toISOString().slice(0, 10);
+/** Settled bets ordered by their basis date (settlement by default). */
+export function orderedSettled(bets: BetRecord[], basis: DateBasis = "settled"): BetRecord[] {
+  return bets.filter((b) => b.status !== "pending")
+    .sort((a, b) => Date.parse(basisTime(a, basis)) - Date.parse(basisTime(b, basis)) || (a.ref ?? 0) - (b.ref ?? 0));
 }
 
 export interface PeriodRow { period: string; bets: number; stake: number; profit: number; roi: number | null; wins: number; winRate: number | null }
 
-export function pnlByPeriod(bets: BetRecord[], g: Granularity): PeriodRow[] {
+/** P/L per local day / ISO week / month, keyed by the selected date basis. */
+export function pnlByPeriod(bets: BetRecord[], g: Granularity, opts: SeriesOptions = {}): PeriodRow[] {
+  const basis = opts.basis ?? "settled", tz = opts.timeZone ?? "UTC";
   const m = new Map<string, { bets: number; stakeC: number; profitC: number; wins: number; decided: number }>();
-  for (const b of bySettlement(bets)) {
-    const k = periodKey(b.settledAt ?? b.placedAt, g);
+  for (const b of orderedSettled(bets, basis)) {
+    const k = periodKey(basisTime(b, basis), g, tz);
     const r = m.get(k) ?? { bets: 0, stakeC: 0, profitC: 0, wins: 0, decided: 0 };
     r.bets++; r.stakeC += cents(b.stake); r.profitC += cents(b.profit ?? 0);
     if (!isNeutral(b)) r.decided++;
@@ -347,66 +349,33 @@ export function pnlByPeriod(bets: BetRecord[], g: Granularity): PeriodRow[] {
 
 export interface CurvePoint { at: string; ref?: number; profit: number; cumProfit: number; cumStake: number; roi: number | null; winRate: number | null; clv: number | null; equity: number | null }
 
-/** Per-settlement cumulative curve; equity = startingEquity + cumulative profit. */
-export function cumulativeCurve(bets: BetRecord[], opts: { convention?: ClvConvention; startingEquity?: number | null } = {}): CurvePoint[] {
-  const conv = opts.convention ?? "odds";
+/** Cumulative curve ordered by the basis date; equity = startingEquity + cumulative profit. */
+export function cumulativeCurve(bets: BetRecord[], opts: { convention?: ClvConvention; startingEquity?: number | null } & SeriesOptions = {}): CurvePoint[] {
+  const conv = opts.convention ?? "odds", basis = opts.basis ?? "settled";
   let p = 0, s = 0, w = 0, n = 0, clvSum = 0, clvN = 0;
-  return bySettlement(bets).map((b) => {
+  return orderedSettled(bets, basis).map((b) => {
     p += cents(b.profit ?? 0); s += cents(b.stake);
     if (!isNeutral(b)) { n++; if (isWin(b)) w++; }
     const c = b.kind === "single" ? clvFn(b.odds, b.closingOdds, conv, b.side) : null;
     if (c != null) { clvSum += c; clvN++; }
     return {
-      at: b.settledAt ?? b.placedAt, ref: b.ref, profit: b.profit ?? 0, cumProfit: fromCents(p), cumStake: fromCents(s),
+      at: basisTime(b, basis), ref: b.ref, profit: b.profit ?? 0, cumProfit: fromCents(p), cumStake: fromCents(s),
       roi: s ? p / s : null, winRate: n ? w / n : null, clv: clvN ? clvSum / clvN : null,
       equity: opts.startingEquity != null ? opts.startingEquity + fromCents(p) : null,
     };
   });
 }
 
-/** Down-sample a curve to one point per day (last value of the day) for long histories. */
-export function dailyCurve(curve: CurvePoint[]): CurvePoint[] {
+/** Down-sample a curve to one point per local day (last value of the day). */
+export function dailyCurve(curve: CurvePoint[], timeZone = "UTC"): CurvePoint[] {
   const m = new Map<string, CurvePoint>();
-  for (const c of curve) m.set(c.at.slice(0, 10), { ...c, at: c.at.slice(0, 10) });
+  for (const c of curve) { const k = localDateKey(c.at, timeZone); m.set(k, { ...c, at: k }); }
   return [...m.values()];
 }
 
-// ── Date ranges ─────────────────────────────────────────────────────────────
-
-export type RangePreset = "today" | "yesterday" | "7d" | "30d" | "90d" | "ytd" | "all" | "custom";
-
-export interface DateRange { from: Date | null; to: Date | null }
-
-export function resolveRange(preset: RangePreset, now = new Date(), custom?: { from?: string | null; to?: string | null }): DateRange {
-  const startOfDay = (x: Date) => new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()));
-  const day = 86_400_000;
-  const today = startOfDay(now);
-  switch (preset) {
-    case "today": return { from: today, to: new Date(today.getTime() + day) };
-    case "yesterday": return { from: new Date(today.getTime() - day), to: today };
-    case "7d": return { from: new Date(today.getTime() - 6 * day), to: new Date(today.getTime() + day) };
-    case "30d": return { from: new Date(today.getTime() - 29 * day), to: new Date(today.getTime() + day) };
-    case "90d": return { from: new Date(today.getTime() - 89 * day), to: new Date(today.getTime() + day) };
-    case "ytd": return { from: new Date(Date.UTC(now.getUTCFullYear(), 0, 1)), to: new Date(today.getTime() + day) };
-    case "all": return { from: null, to: null };
-    case "custom": return {
-      from: custom?.from ? new Date(custom.from) : null,
-      to: custom?.to ? new Date(new Date(custom.to).getTime() + day) : null,
-    };
-  }
-}
-
-/** The equally long period immediately before `r` (null for open-ended ranges). */
-export function previousRange(r: DateRange): DateRange | null {
-  if (!r.from || !r.to) return null;
-  const len = r.to.getTime() - r.from.getTime();
-  return { from: new Date(r.from.getTime() - len), to: new Date(r.from) };
-}
-
-export function inRange(b: BetRecord, r: DateRange): boolean {
-  const t = Date.parse(b.placedAt);
-  return (!r.from || t >= r.from.getTime()) && (!r.to || t < r.to.getTime());
-}
+// ── Date ranges (see dates.ts) ──────────────────────────────────────────────
+export { resolveRange, previousRange, inRange, periodKey, BASIS_LABEL, PRESET_LABEL };
+export type { DateRange, RangePreset, DateBasis, Granularity };
 
 /** Relative change for period comparison; null when the base is zero or missing. */
 export function change(current: number | null, previous: number | null): number | null {

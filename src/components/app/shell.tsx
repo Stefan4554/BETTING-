@@ -92,7 +92,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-const PRESETS = [["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["ytd", "Year to date"], ["all", "All time"]] as const;
+const PRESETS = [["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["mtd", "This month"], ["last_month", "Last month"], ["ytd", "This year"], ["all", "All time"]] as const;
+const BASES = [["placed", "Bet placed"], ["event", "Event start"], ["settled", "Settlement"]] as const;
 
 function TopBar({ onMenu, onNewBet }: { onMenu: () => void; onNewBet: () => void }) {
   const data = useAppData();
@@ -101,8 +102,9 @@ function TopBar({ onMenu, onNewBet }: { onMenu: () => void; onNewBet: () => void
   const [from, setFrom] = React.useState(data.range.from ?? "");
   const [to, setTo] = React.useState(data.range.to ?? "");
 
-  const applyRange = (r: { preset: string; from?: string; to?: string }) => start(async () => {
-    const res = await setRange(r as never);
+  const [basis, setBasis] = React.useState(data.range.basis);
+  const applyRange = (r: { preset: string; from?: string | null; to?: string | null }) => start(async () => {
+    const res = await setRange({ ...r, basis } as never);
     if (!res.ok) toast.error(res.error); else router.refresh();
   });
   const switchMode = (m: "live" | "demo") => start(async () => {
@@ -119,10 +121,17 @@ function TopBar({ onMenu, onNewBet }: { onMenu: () => void; onNewBet: () => void
       <div className="ml-auto flex items-center gap-1.5">
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="md" className="num" disabled={pending}>{data.rangeLabel}</Button>
+            <Button variant="outline" size="md" className="num max-w-[46vw] truncate" disabled={pending} title="Global date filter">{data.rangeLabel}</Button>
           </PopoverTrigger>
           <PopoverContent className="w-64">
-            <div className="label-xs mb-1.5">Global date filter</div>
+            <div className="label-xs mb-1.5">Date basis</div>
+            <div className="mb-2 grid grid-cols-3 gap-1">
+              {BASES.map(([k, l]) => (
+                <Button key={k} size="sm" variant={basis === k ? "default" : "outline"} onClick={() => { setBasis(k); start(async () => { const r = await setRange({ preset: data.range.preset, from: data.range.from, to: data.range.to, basis: k } as never); if (!r.ok) toast.error(r.error); else router.refresh(); }); }}>{l}</Button>
+              ))}
+            </div>
+            <p className="mb-2 text-[10.5px] text-dim">Applies to every KPI, chart, table and report. Day boundaries use your time zone ({data.timeZone}).</p>
+            <div className="label-xs mb-1.5">Period</div>
             <div className="grid grid-cols-2 gap-1">
               {PRESETS.map(([k, l]) => (
                 <Button key={k} size="sm" variant={data.range.preset === k ? "default" : "outline"} onClick={() => applyRange({ preset: k })}>{l}</Button>

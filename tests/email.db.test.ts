@@ -14,7 +14,7 @@ const url = process.env.SUPABASE_TEST_URL, key = process.env.SUPABASE_TEST_SERVI
 const suite = url && key ? describe : describe.skip;
 
 suite("email outbox (integration)", () => {
-  const admin = createClient<Database>(url!, key!, { auth: { persistSession: false } });
+  let admin: ReturnType<typeof createClient<Database>>;
   let uid = "";
   let sends = 0;
   const resend = (status: number, body: unknown) => (async () => { sends++; return new Response(JSON.stringify(body), { status }); }) as unknown as typeof fetch;
@@ -25,6 +25,7 @@ suite("email outbox (integration)", () => {
   const outboxFor = async (dedupe: string) => (await admin.from("email_outbox").select("*").eq("user_id", uid).eq("dedupe_key", `alert:${dedupe}`)).data ?? [];
 
   beforeAll(async () => {
+    admin = createClient<Database>(url!, key!, { auth: { persistSession: false } });
     process.env.RESEND_API_KEY = "re_test_key"; process.env.ALERTS_FROM_EMAIL = "Alerts <alerts@example.com>"; resetEnvCache();
     const { data, error } = await admin.auth.admin.createUser({ email: `email-it-${Date.now()}@example.com`, password: "password123", email_confirm: true });
     if (error) throw error;

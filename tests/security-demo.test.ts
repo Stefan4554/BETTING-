@@ -47,3 +47,45 @@ describe("demo dataset", () => {
     expect(negative).toBeLessThanOrEqual(1);
   });
 });
+
+import { DEMO_LEAGUES } from "@/lib/demo/generator";
+import { groupBy, type BetRecord } from "@/lib/finance/metrics";
+
+describe("demo leagues", () => {
+  const d = buildDemoDataset(new Date("2026-11-20T12:00:00Z"));
+  const singles = d.bets.filter((b) => !Array.isArray(b.legs));
+  it("every single bet, event and trade has a league of its own sport", () => {
+    for (const b of singles) expect(DEMO_LEAGUES[String(b.sport_key)], `${b.sport_key}`).toContain(b.league_name);
+    for (const e of d.events) expect(DEMO_LEAGUES.football).toContain(e.league_name);
+    for (const t of d.trades) expect(DEMO_LEAGUES[String(t.sport_key)]).toContain(t.league_name);
+  });
+  it("covers the required competitions", () => {
+    const used = new Set(singles.map((b) => b.league_name));
+    for (const l of ["English Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UEFA Champions League", "UEFA Europa League", "Slovenian PrvaLiga",
+      "NBA", "EuroLeague", "EuroCup", "NCAA", "ATP Tour", "WTA Tour", "Grand Slam", "Challenger Tour", "NHL", "KHL", "SHL"]) expect(used.has(l), l).toBe(true);
+  });
+  it("domestic fixtures pair clubs of the same league; a club never plays in two domestic leagues", () => {
+    const clubLeague = new Map<string, string>();
+    for (const b of singles.filter((x) => x.sport_key === "football" && !String(x.league_name).startsWith("UEFA"))) {
+      for (const team of [b.home, b.away] as string[]) {
+        const prev = clubLeague.get(team);
+        expect(prev === undefined || prev === b.league_name, `${team}: ${prev} vs ${b.league_name}`).toBe(true);
+        clubLeague.set(team, String(b.league_name));
+      }
+    }
+  });
+  it("league filtering and aggregation add up", () => {
+    const recs = singles.filter((b) => b.status && b.status !== "pending").map((b, i) => ({
+      id: String(i), placedAt: String(b.placed_at), settledAt: String(b.settled_at ?? b.placed_at), status: b.status as BetRecord["status"], side: "back", kind: "single",
+      odds: Number(b.odds), stake: Number(b.stake), liability: Number(b.stake), profit: b.status === "won" ? Number(b.stake) * (Number(b.odds) - 1) : b.status === "lost" ? -Number(b.stake) : 0,
+      estProbability: null, openingOdds: null, closingOdds: null, isLive: false, sport: String(b.sport_key), league: String(b.league_name), bookmaker: null, strategy: null,
+      market: String(b.market), marketCategory: null, eventName: String(b.event_name), eventId: null, correlationGroup: null, bankrollId: "x", tags: [],
+    } as BetRecord));
+    const byLeague = groupBy(recs, (r) => r.league);
+    expect(byLeague.reduce((a, g) => a + g.bets, 0)).toBe(recs.length);
+    expect(byLeague.reduce((a, g) => a + g.profit, 0)).toBeCloseTo(recs.reduce((a, r) => a + (r.profit ?? 0), 0), 6);
+    const nba = recs.filter((r) => r.sport === "basketball" && r.league === "NBA");
+    expect(nba.every((r) => r.sport === "basketball")).toBe(true);
+    expect(byLeague.find((g) => g.key === "NBA")!.bets).toBe(nba.length);
+  });
+});

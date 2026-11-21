@@ -3,7 +3,7 @@ import type { AppContext } from "./context";
 import type { Tables } from "@/lib/supabase/database.types";
 import { FxTable } from "@/lib/finance/fx";
 import type { BetRecord } from "@/lib/finance/metrics";
-import { position, type Execution } from "@/lib/finance/trading";
+import type { Execution } from "@/lib/finance/trading";
 
 export const BET_SELECT =
   "*, sports(name,key), leagues(name), bookmakers(name,key), strategies(name,color), bankrolls(name,currency), bet_legs(*)";
@@ -67,7 +67,7 @@ export function toRecords(rows: BetRow[], fx: FxTable, displayCurrency: string):
       isLive: b.is_live, sport: b.sports?.name ?? "Other", league: b.leagues?.name ?? null,
       bookmaker: b.bookmakers?.name ?? null, strategy: b.strategies?.name ?? null, market: b.market, selection: b.selection,
       marketCategory: b.market_category, eventName: b.event_name, eventId: b.event_id, correlationGroup: b.correlation_group,
-      bankrollId: b.bankroll_id, tags: b.tags,
+      bankrollId: b.bankroll_id, tags: b.tags, eventStart: b.event_start,
     });
   }
   return { records, unconverted, currency: displayCurrency };
@@ -87,14 +87,12 @@ export function executionsOf(t: TradeRow): Execution[] {
     .map((e) => ({ side: e.side, odds: e.odds == null ? null : Number(e.odds), stake: Number(e.stake), amount: e.amount == null ? null : Number(e.amount), executedAt: e.executed_at }));
 }
 
+/** Open-trade exposure = the amount actually reserved in the ledger (bankroll ccy → display ccy). */
 export function openTradeExposures(trades: TradeRow[], fx: FxTable, ctx: AppContext) {
   return trades.filter((t) => t.status === "open").map((t) => {
     const br = ctx.bankrolls.find((b) => b.id === t.bankroll_id);
-    const k = Number(t.fx_rate) * (fx.rate(br?.currency ?? t.currency, ctx.displayCurrency) ?? 1);
-    // Exposure = the amount actually reserved in the ledger for this position (bankroll ccy).
-    const kb = fx.rate(br?.currency ?? t.currency, ctx.displayCurrency) ?? 1;
-    void k; void position;
-    return { id: t.id, eventName: t.event_name, sport: t.sports?.name ?? "Other", exposure: Number(t.reserved_base) * kb };
+    const k = fx.rate(br?.currency ?? t.currency, ctx.displayCurrency) ?? 1;
+    return { id: t.id, eventName: t.event_name, sport: t.sports?.name ?? "Other", exposure: Number(t.reserved_base) * k };
   });
 }
 

@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { supabaseServer, type DB } from "@/lib/supabase/server";
 import type { Tables } from "@/lib/supabase/database.types";
-import { resolveRange, type RangePreset } from "@/lib/finance/metrics";
+import { BASIS_LABEL, isValidTimeZone, PRESET_LABEL, resolveRange, type DateBasis, type RangePreset } from "@/lib/finance/dates";
 
 export type Settings = Tables<"user_settings">;
 export type Bankroll = Tables<"bankrolls">;
@@ -61,21 +61,23 @@ export const getContext = cache(async (): Promise<AppContext> => {
   };
 });
 
-export interface RangeSetting { preset: RangePreset; from?: string | null; to?: string | null }
+export interface RangeSetting { preset: RangePreset; from?: string | null; to?: string | null; basis?: DateBasis }
 export const RANGE_COOKIE = "bep_range";
 
-export async function getRange(): Promise<RangeSetting & { label: string }> {
+/** Global date filter: preset/custom range + date basis (cookie), time zone from user settings. */
+export async function getRange(): Promise<RangeSetting & { basis: DateBasis; timeZone: string; label: string }> {
+  const ctx = await getContext();
   const raw = (await cookies()).get(RANGE_COOKIE)?.value;
   let r: RangeSetting = { preset: "all" };
   try { if (raw) r = JSON.parse(raw) as RangeSetting; } catch { /* ignore */ }
-  const labels: Record<RangePreset, string> = {
-    today: "Today", yesterday: "Yesterday", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days",
-    ytd: "Year to date", all: "All time", custom: `${r.from ?? "…"} → ${r.to ?? "…"}`,
-  };
-  return { ...r, label: labels[r.preset] ?? "All time" };
+  if (!(r.preset in PRESET_LABEL) && r.preset !== "custom") r = { preset: "all" };
+  const basis: DateBasis = r.basis ?? (ctx.settings.date_basis as DateBasis) ?? "placed";
+  const timeZone = isValidTimeZone(ctx.settings.timezone) ? ctx.settings.timezone : "UTC";
+  const base = r.preset === "custom" ? `${r.from ?? "…"} → ${r.to ?? "…"}` : PRESET_LABEL[r.preset];
+  return { ...r, basis, timeZone, label: base };
 }
 
 export async function getResolvedRange() {
   const r = await getRange();
-  return { setting: r, range: resolveRange(r.preset, new Date(), r) };
+  return { setting: { ...r, label: `${r.label} · by ${BASIS_LABEL[r.basis]}` }, range: resolveRange(r.preset, new Date(), r, r.timeZone, r.basis) };
 }

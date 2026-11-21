@@ -17,7 +17,8 @@ export interface AppData {
   strategies: { id: string; name: string; color: string; is_active: boolean }[];
   marketTypes: { id: string; name: string; key: string; category: string; has_line: boolean; outcomes: string[]; sport_id: string | null; settlement: string; owner_id: string | null }[];
   rangeLabel: string;
-  range: { preset: string; from?: string | null; to?: string | null };
+  range: { preset: string; from?: string | null; to?: string | null; basis: "placed" | "event" | "settled" };
+  timeZone: string;
   unreadAlerts: number;
 }
 

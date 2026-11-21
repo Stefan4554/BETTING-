@@ -71,6 +71,8 @@ export function DashboardView({ a, widgets, rangeLabel, hasPrevious, goals }: { 
         actions={<Button variant="outline" onClick={() => setCustom(true)}><LayoutGrid className="h-3.5 w-3.5" /> Customize</Button>} />
       {a.unconverted > 0 && <Notice level="warn">{a.unconverted} bet(s) excluded: no exchange rate to {c}. Add rates in Settings → Currencies.</Notice>}
       <SampleWarning n={s.settledBets} />
+      {a.fallbackDates > 0 && <Notice>{a.fallbackDates} bet(s) have no event start date and are dated by placement under the event-date basis.</Notice>}
+      {a.excludedPending > 0 && <Notice>{a.excludedPending} pending bet(s) have no settlement date yet and are excluded under the settlement-date basis (open exposure still counts them).</Notice>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         <Kpi label="Total bets" value={fmtNum(s.totalBets)} delta={d(s.totalBets, p?.totalBets)} />
         <Kpi label="Settled" value={fmtNum(s.settledBets)} sub={`${s.voidBets} void`} />

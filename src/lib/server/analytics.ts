@@ -6,6 +6,8 @@ import {
   type BetRecord, type DateRange,
 } from "@/lib/finance/metrics";
 import { calibrate } from "@/lib/finance/calibration";
+import { riskAdjusted } from "@/lib/finance/risk-adjusted";
+import { basisTime, usesFallback } from "@/lib/finance/dates";
 import { riskState } from "@/lib/finance/risk";
 import { clv } from "@/lib/finance/clv";
 
@@ -40,14 +42,17 @@ export function buildAnalytics(ctx: AppContext, base: AnalyticsBase, range: Date
   const convention = ctx.settings.clv_convention;
   const all = base.conv.records;
   const bets = all.filter((b) => inRange(b, range));
+  const series = { basis: range.basis, timeZone: range.timeZone };
+  const fallbackDates = range.basis === "event" ? bets.filter((b) => usesFallback(b, "event")).length : 0;
+  const excludedPending = range.basis === "settled" && (range.from || range.to) ? all.filter((b) => b.status === "pending").length : 0;
   const prevRange = previousRange(range);
   const prev = prevRange ? all.filter((b) => inRange(b, prevRange)) : null;
   const summary = summarize(bets, { convention, capital: base.capital, bankroll: base.totals.equity });
   const previous = prev ? summarize(prev, { convention, capital: base.capital, bankroll: base.totals.equity }) : null;
   // Equity curve: start from equity before the range's first settled bet.
-  const settledBefore = range.from ? all.filter((b) => b.status !== "pending" && Date.parse(b.settledAt ?? b.placedAt) < range.from!.getTime()) : [];
+  const settledBefore = range.from ? all.filter((b) => b.status !== "pending" && Date.parse(basisTime(b, range.basis)) < range.from!.getTime()) : [];
   const priorProfit = settledBefore.reduce((s, b) => s + (b.profit ?? 0), 0);
-  const curve = dailyCurve(cumulativeCurve(bets, { convention, startingEquity: base.capital + priorProfit }));
+  const curve = dailyCurve(cumulativeCurve(bets, { convention, startingEquity: base.capital + priorProfit, ...series }), range.timeZone);
   const edges = stakeBuckets(bets);
   const risk = riskState(all, base.tradeExp, base.totals.equity);
   const clvPoints = bets
@@ -61,9 +66,14 @@ export function buildAnalytics(ctx: AppContext, base: AnalyticsBase, range: Date
     summary, previous,
     equity: base.totals.equity, balance: base.totals.balance, capital: base.capital,
     curve,
-    daily: pnlByPeriod(bets, "day"),
-    weekly: pnlByPeriod(bets, "week"),
-    monthly: pnlByPeriod(bets, "month"),
+    daily: pnlByPeriod(bets, "day", series),
+    weekly: pnlByPeriod(bets, "week", series),
+    monthly: pnlByPeriod(bets, "month", series),
+    basis: range.basis, timeZone: range.timeZone, fallbackDates, excludedPending,
+    riskAdjusted: (() => { const ra = riskAdjusted(bets, {
+      capital: base.capital + priorProfit, timeZone: range.timeZone, riskFreeAnnual: Number(ctx.settings.risk_free_rate),
+      marAnnual: Number(ctx.settings.sortino_mar), periodsPerYear: ctx.settings.annualization_days === 252 ? 252 : 365,
+    }); return { ...ra, series: ra.series.slice(-400) }; })(),
     bySport: groupBy(bets, (b) => b.sport, convention),
     byBookmaker: groupBy(bets, (b) => b.bookmaker, convention),
     byStrategy: groupBy(bets, (b) => b.strategy ?? "No strategy", convention),

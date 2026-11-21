@@ -541,13 +541,15 @@ begin
                "markets":[{"key":"h2h","name":"Match Winner","snapshots":[
                  {"bookmaker":"pinnacle","selection":"Demo FC","odds":2.1,"at":"2026-01-01T10:00:00Z"},
                  {"bookmaker":"pinnacle","selection":"Demo FC","odds":1.95,"at":"2026-01-02T14:55:00Z"}]}]}],
-    "bets":[{"bankroll":"Demo Main","event_name":"Demo FC v Sample Utd","selection":"Demo FC","odds":2.1,"stake":20,"status":"won","market_ref":"e1:h2h",
+    "bets":[{"bankroll":"Demo Main","event_name":"Demo FC v Sample Utd","selection":"Demo FC","odds":2.1,"stake":20,"status":"won","market_ref":"e1:h2h","league_name":"La Liga","sport_key":"football",
              "event_start":"2026-01-02T15:00:00Z","placed_at":"2026-01-01T10:05:00Z","strategy_name":"Demo value","bookmaker_key":"pinnacle"}],
     "trades":[{"bankroll":"Demo Main","event_name":"Demo live","market":"Match Odds","selection":"Demo FC","currency":"EUR","opened_at":"2026-01-02T15:10:00Z",
                "outcome":"win","closed_at":"2026-01-02T17:00:00Z","executions":[{"side":"back","odds":2.5,"stake":10,"executed_at":"2026-01-02T15:10:00Z"}]}]}'::jsonb);
   assert (r->>'bets')::int = 1, 'demo bets';
   assert (select mode from user_settings) = 'demo', 'mode switched to demo';
   assert (select count(*) from bets where is_demo) = 1, 'demo bet flagged';
+  assert (select l.name from bets b join leagues l on l.id = b.league_id where b.is_demo) = 'La Liga', 'demo bet linked to platform league';
+  assert (select l.sport_id = b.sport_id from bets b join leagues l on l.id = b.league_id where b.is_demo), 'league belongs to the bet sport';
   assert (select balance from bankrolls where is_demo) = 537, format('demo balance %s', (select balance from bankrolls where is_demo));
   assert (select count(*) from bets where not is_demo) = live_bets, 'live untouched';
   assert (select count(*) from performance_snapshots where is_demo) > 0, 'demo snapshots';

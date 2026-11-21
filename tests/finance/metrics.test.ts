@@ -197,7 +197,7 @@ describe("date ranges", () => {
     expect(resolveRange("yesterday", now).to!.toISOString()).toBe("2026-03-15T00:00:00.000Z");
     expect(resolveRange("7d", now).from!.toISOString()).toBe("2026-03-09T00:00:00.000Z");
     expect(resolveRange("ytd", now).from!.toISOString()).toBe("2026-01-01T00:00:00.000Z");
-    expect(resolveRange("all", now)).toEqual({ from: null, to: null });
+    expect(resolveRange("all", now)).toMatchObject({ from: null, to: null, basis: "placed", timeZone: "UTC" });
     expect(resolveRange("custom", now, { from: "2026-02-01", to: "2026-02-28" }).to!.toISOString()).toBe("2026-03-01T00:00:00.000Z");
   });
   it("previous period has the same length", () => {

@@ -2,6 +2,7 @@ import "server-only";
 import type { AppContext } from "./context";
 import { loadAnalyticsBase } from "./analytics";
 import { groupBy, pnlByPeriod, summarize, type BetRecord } from "@/lib/finance/metrics";
+import { basisTime, BASIS_LABEL, inRange, isValidTimeZone, periodKey, resolveRange, usesFallback, type DateBasis } from "@/lib/finance/dates";
 import { riskState } from "@/lib/finance/risk";
 import { clv } from "@/lib/finance/clv";
 import { position } from "@/lib/finance/trading";
@@ -17,12 +18,16 @@ export type ReportType = keyof typeof REPORT_TYPES;
 export interface ReportTable { title: string; columns: string[]; rows: (string | number | null)[][] }
 export interface Report { title: string; period: string; generatedAt: string; currency: string; workspace: "live" | "demo"; summary: [string, string][]; tables: ReportTable[]; notes: string[] }
 
-export async function buildReport(ctx: AppContext, type: ReportType, from: string | null, to: string | null, filter?: string | null): Promise<Report> {
+export async function buildReport(ctx: AppContext, type: ReportType, from: string | null, to: string | null, filter?: string | null, basisIn?: DateBasis): Promise<Report> {
   const base = await loadAnalyticsBase(ctx);
   const c = ctx.displayCurrency, conv = ctx.settings.clv_convention;
-  const lo = from ? Date.parse(from) : -Infinity, hi = to ? Date.parse(to) + 86_400_000 : Infinity;
-  const inP = (iso: string) => { const t = Date.parse(iso); return t >= lo && t < hi; };
-  let bets = base.conv.records.filter((b) => inP(b.placedAt));
+  const basis: DateBasis = basisIn ?? (ctx.settings.date_basis as DateBasis) ?? "placed";
+  const tz = isValidTimeZone(ctx.settings.timezone) ? ctx.settings.timezone : "UTC";
+  const range = resolveRange("custom", new Date(), { from, to }, tz, basis);
+  const series = { basis, timeZone: tz };
+  // Non-bet records (ledger, trades) use their own timestamp with the same local-day boundaries.
+  const inP = (iso: string) => { const t = Date.parse(iso); return (!range.from || t >= range.from.getTime()) && (!range.to || t < range.to.getTime()); };
+  let bets = base.conv.records.filter((b) => inRange(b, range));
   if (filter && type === "sport") bets = bets.filter((b) => b.sport === filter);
   if (filter && type === "bookmaker") bets = bets.filter((b) => b.bookmaker === filter);
   if (filter && type === "strategy") bets = bets.filter((b) => (b.strategy ?? "No strategy") === filter);
@@ -41,7 +46,7 @@ export async function buildReport(ctx: AppContext, type: ReportType, from: strin
   });
   const periodTable = (title: string, g: "day" | "week" | "month"): ReportTable => ({
     title, columns: ["Period", "Bets", "Stake", "P/L", "ROI %", "Win %"],
-    rows: pnlByPeriod(bets, g).map((r) => [r.period, r.bets, round(r.stake), round(r.profit), pct(r.roi), pct(r.winRate)]),
+    rows: pnlByPeriod(bets, g, series).map((r) => [r.period, r.bets, round(r.stake), round(r.profit), pct(r.roi), pct(r.winRate)]),
   });
   const betList = (list: BetRecord[]): ReportTable => ({
     title: "Bets", columns: ["#", "Placed", "Sport", "Event", "Market", "Selection", "Book", "Odds", "Stake", "Status", "P/L", "CLV %"],
@@ -49,13 +54,15 @@ export async function buildReport(ctx: AppContext, type: ReportType, from: strin
       (() => { const v = clv(b.odds, b.closingOdds, conv, b.side); return v == null ? null : +(v * 100).toFixed(2); })()]),
   });
   const tables: ReportTable[] = [];
-  const notes: string[] = [`Amounts in ${c}. ROI and yield are both net profit / settled stake.`, "Statistics on fewer than 30 settled bets are highly uncertain."];
+  const notes: string[] = [`Amounts in ${c}. ROI and yield are both net profit / settled stake.`, `Bets selected and grouped by ${BASIS_LABEL[basis]}; day boundaries in ${tz}.`, "Statistics on fewer than 30 settled bets are highly uncertain."];
+  if (basis === "event") { const n = bets.filter((b) => usesFallback(b, "event")).length; if (n) notes.push(`${n} bet(s) without an event date are dated by placement.`); }
+  if (basis === "settled" && (from || to)) notes.push("Pending bets have no settlement date and are excluded.");
   switch (type) {
     case "daily": tables.push(periodTable("Daily P&L", "day"), betList(bets)); break;
     case "weekly": tables.push(periodTable("Weekly P&L (ISO weeks, Monday start)", "week")); break;
     case "monthly": tables.push(periodTable("Monthly P&L", "month"), groupTable("By sport", "Sport", groupBy(bets, (b) => b.sport, conv))); break;
     case "annual": {
-      const years = groupBy(bets.filter((b) => b.status !== "pending"), (b) => (b.settledAt ?? b.placedAt).slice(0, 4), conv).sort((a, b) => a.key.localeCompare(b.key));
+      const years = groupBy(bets.filter((b) => b.status !== "pending"), (b) => periodKey(basisTime(b, basis), "month", tz).slice(0, 4), conv).sort((a, b) => a.key.localeCompare(b.key));
       tables.push(groupTable("By year", "Year", years), periodTable("By month", "month"), groupTable("By sport", "Sport", groupBy(bets, (b) => b.sport, conv)), groupTable("By strategy", "Strategy", groupBy(bets, (b) => b.strategy ?? "No strategy", conv)));
       break;
     }
@@ -103,7 +110,7 @@ export async function buildReport(ctx: AppContext, type: ReportType, from: strin
   }
   if (base.conv.unconverted) notes.push(`${base.conv.unconverted} bets excluded for missing exchange rates.`);
   return {
-    title: `${REPORT_TYPES[type]}${filter ? ` — ${filter}` : ""}`, period: `${from ?? "first bet"} → ${to ?? "today"}`, generatedAt: new Date().toISOString(),
+    title: `${REPORT_TYPES[type]}${filter ? ` — ${filter}` : ""}`, period: `${from ?? "first bet"} → ${to ?? "today"} · by ${BASIS_LABEL[basis]}`, generatedAt: new Date().toISOString(),
     currency: c, workspace: ctx.isDemo ? "demo" : "live", summary: type === "live" || type === "bankroll" ? summary.slice(0, type === "bankroll" ? 0 : summary.length) : summary, tables, notes,
   };
 }

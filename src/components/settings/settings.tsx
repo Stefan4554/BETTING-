@@ -56,7 +56,8 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
   const [f, setF] = React.useState({
     odds_format: settings.odds_format, theme: settings.theme, timezone: settings.timezone, clv_convention: settings.clv_convention,
     clv_reference_bookmaker: settings.clv_reference_bookmaker ?? "", default_kelly_fraction: String(settings.default_kelly_fraction), unit_size: String(settings.unit_size),
-    default_bankroll_id: settings.default_bankroll_id ?? "", large_result: String(prefs.large_result ?? 250), odds_move_pct: String((prefs.odds_move_pct ?? 0.08) * 100), email: Boolean(prefs.email),
+    default_bankroll_id: settings.default_bankroll_id ?? "", date_basis: settings.date_basis,
+    risk_free_rate: String(Number(settings.risk_free_rate) * 100), sortino_mar: String(Number(settings.sortino_mar) * 100), annualization_days: String(settings.annualization_days), large_result: String(prefs.large_result ?? 250), odds_move_pct: String((prefs.odds_move_pct ?? 0.08) * 100), email: Boolean(prefs.email),
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async () => {
@@ -65,7 +66,9 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
     await save({
       odds_format: f.odds_format as "decimal", theme: f.theme as "dark", timezone: f.timezone, clv_convention: f.clv_convention,
       clv_reference_bookmaker: f.clv_reference_bookmaker || null, default_kelly_fraction: Number(f.default_kelly_fraction), unit_size: Number(f.unit_size),
-      default_bankroll_id: f.default_bankroll_id || null, alert_preferences: { large_result: Number(f.large_result), odds_move_pct: Number(f.odds_move_pct) / 100, email: f.email },
+      default_bankroll_id: f.default_bankroll_id || null, date_basis: f.date_basis as "placed",
+      risk_free_rate: Number(f.risk_free_rate) / 100, sortino_mar: Number(f.sortino_mar) / 100, annualization_days: Number(f.annualization_days) as 365,
+      alert_preferences: { large_result: Number(f.large_result), odds_move_pct: Number(f.odds_move_pct) / 100, email: f.email },
     });
   };
   return (
@@ -73,7 +76,8 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
       <Panel title="Display" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label>Odds format<Select value={f.odds_format} onChange={set("odds_format")}><option value="decimal">Decimal (2.50)</option><option value="american">American (+150)</option><option value="fractional">Fractional (3/2)</option></Select></Label>
         <Label>Theme<Select value={f.theme} onChange={set("theme")}><option value="dark">Charcoal (dark)</option><option value="darker">Black (OLED)</option><option value="light">Light</option></Select></Label>
-        <Label>Timezone<Input value={f.timezone} onChange={set("timezone")} /></Label>
+        <Label>Time zone (IANA, used for day boundaries)<Input value={f.timezone} onChange={set("timezone")} placeholder="Europe/Ljubljana" /></Label>
+        <Label>Default date basis<Select value={f.date_basis} onChange={set("date_basis")}><option value="placed">Bet placed date</option><option value="event">Event start date</option><option value="settled">Settlement date</option></Select></Label>
         <Label>Default bankroll<Select value={f.default_bankroll_id} onChange={set("default_bankroll_id")}><option value="">First bankroll</option>{app.bankrolls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Label>
       </Panel>
       <Panel title="Analytics conventions" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
@@ -81,6 +85,9 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
         <Label className="col-span-2">CLV reference market (closing prices)<Select value={f.clv_reference_bookmaker} onChange={set("clv_reference_bookmaker")}><option value="">Each bet&apos;s own bookmaker</option>{app.bookmakers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select></Label>
         <Label>Default Kelly fraction<Input inputMode="decimal" value={f.default_kelly_fraction} onChange={set("default_kelly_fraction")} /></Label>
         <Label>Unit size<Input inputMode="decimal" value={f.unit_size} onChange={set("unit_size")} /></Label>
+        <Label>Risk-free rate % (annual, Sharpe)<Input inputMode="decimal" value={f.risk_free_rate} onChange={set("risk_free_rate")} /></Label>
+        <Label>Sortino MAR % (annual)<Input inputMode="decimal" value={f.sortino_mar} onChange={set("sortino_mar")} /></Label>
+        <Label>Annualisation<Select value={f.annualization_days} onChange={set("annualization_days")}><option value="365">365 days (sports bet every day)</option><option value="252">252 trading days</option></Select></Label>
       </Panel>
       <Panel title="Notifications" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label>Large profit/loss alert ≥<Input inputMode="decimal" value={f.large_result} onChange={set("large_result")} /></Label>

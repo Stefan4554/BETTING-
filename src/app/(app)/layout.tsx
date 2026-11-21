@@ -21,8 +21,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     bookmakers: ctx.bookmakers.filter((b) => b.is_active).map((b) => ({ id: b.id, name: b.name, key: b.key, is_exchange: b.is_exchange, default_commission: Number(b.default_commission), owner_id: b.owner_id })),
     strategies: ctx.strategies.map((s) => ({ id: s.id, name: s.name, color: s.color, is_active: s.is_active })),
     marketTypes: ctx.marketTypes.map((m) => ({ id: m.id, name: m.name, key: m.key, category: m.category, has_line: m.has_line, outcomes: m.outcomes, sport_id: m.sport_id, settlement: m.settlement, owner_id: m.owner_id })),
-    rangeLabel: range.label,
-    range: { preset: range.preset, from: range.from ?? null, to: range.to ?? null },
+    rangeLabel: `${range.label} · ${range.basis === "placed" ? "placed" : range.basis === "event" ? "event date" : "settled"}`,
+    range: { preset: range.preset, from: range.from ?? null, to: range.to ?? null, basis: range.basis },
+    timeZone: range.timeZone,
     unreadAlerts: ctx.unreadAlerts,
   };
   return <AppDataProvider value={value}><Shell>{children}</Shell></AppDataProvider>;

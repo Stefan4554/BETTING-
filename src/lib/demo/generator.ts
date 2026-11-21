@@ -17,11 +17,31 @@ function rng(seed: number) {
 }
 
 const CLUBS = ["Northbridge FC", "Riverside Athletic", "Port Calder", "Ashford Rovers", "Kingsmere United", "Valecrest City", "Harlow Town",
-  "Eastmoor Albion", "Brightwater", "Stonegate Wanderers", "Fenwick County", "Oakhurst", "Millbrook Rangers", "Westhaven", "Corrin Bay", "Thornfield"];
+  "Eastmoor Albion", "Brightwater", "Stonegate Wanderers", "Fenwick County", "Oakhurst", "Millbrook Rangers", "Westhaven", "Corrin Bay", "Thornfield",
+  "Ravenscar", "Delmont Sporting", "Kestrel Park", "Larkspur United", "Mossgate", "Pellham City", "Quarry Lane", "Saltmarsh Town", "Tidewater", "Uxbridge Vale",
+  "Wexcombe", "Yarrowfield", "Zennor Athletic", "Blackmere", "Cobalt Rovers", "Drumlin FC"];
 const PLAYERS = ["A. Varga", "L. Moreau", "K. Tanaka", "D. Okafor", "S. Lindqvist", "M. Ferreira", "J. Novak", "R. Castell", "E. Brandt", "T. Halloran",
   "P. Ivanova", "C. Duarte", "H. Sato", "N. Kowal", "B. Arendt", "F. Romano"];
 const HOOPS = ["Metro Hawks", "Bay Cyclones", "Capital Rush", "Summit Peaks", "Harbor Kings", "Desert Suns", "Lakeside Owls", "Iron City Forge",
   "Coastal Waves", "Granite Bears"];
+const PUCKS = ["Northern Lynx", "Harbour Wolves", "Steel Valley", "Glacier Bay", "Red River Bisons", "Pinewood Owls", "Ironside Rams", "Frost Harbour"];
+
+/** Platform league names (seeded in migrations 0005/0008) per sport. Teams map to a fixed league. */
+export const DEMO_LEAGUES: Record<string, string[]> = {
+  football: ["English Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UEFA Champions League", "UEFA Europa League", "Slovenian PrvaLiga"],
+  basketball: ["NBA", "EuroLeague", "EuroCup", "NCAA"],
+  tennis: ["ATP Tour", "WTA Tour", "Grand Slam", "Challenger Tour"],
+  ice_hockey: ["NHL", "KHL", "SHL"],
+};
+const DOMESTIC: Record<string, string[]> = { ...DEMO_LEAGUES, football: DEMO_LEAGUES.football!.filter((l) => !l.startsWith("UEFA")) };
+const teamLeague = (sport: string, list: string[], team: string) => DOMESTIC[sport]![list.indexOf(team) % DOMESTIC[sport]!.length]!;
+
+/** Same domestic league → that league; otherwise a European competition (deterministic). */
+const footballLeague = (h: string, a: string) => {
+  const lh = teamLeague("football", CLUBS, h), la = teamLeague("football", CLUBS, a);
+  return lh === la ? lh : (CLUBS.indexOf(h) + CLUBS.indexOf(a)) % 2 ? "UEFA Champions League" : "UEFA Europa League";
+};
+
 const BOOKS = ["pinnacle", "bet365", "williamhill", "unibet", "betfair_ex", "betway"];
 
 type Json = Record<string, unknown>;
@@ -50,7 +70,8 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     { name: "Pinnacle value", sport_key: "football", description: "Back prices at soft books that beat the Pinnacle no-vig line by ≥3%.", entry_conditions: "Edge ≥ 3% vs no-vig sharp line", min_odds: 1.6, max_odds: 4, stake_rule: { type: "kelly", value: 0.25 }, color: "#3987e5" },
     { name: "Underdog AH", sport_key: "football", description: "Home underdogs on +0.25/+0.5 Asian lines.", entry_conditions: "Home team priced ≥ 2.6 in 1X2", min_odds: 1.8, max_odds: 2.3, stake_rule: { type: "flat", value: 50 }, color: "#d95926" },
     { name: "Tennis serve model", sport_key: "tennis", description: "Hold/break model edges pre-match.", entry_conditions: "Model edge ≥ 4pp", min_odds: 1.4, max_odds: 3.5, stake_rule: { type: "kelly", value: 0.2 }, color: "#199e70" },
-    { name: "NBA totals", sport_key: "basketball", description: "Pace-adjusted totals.", entry_conditions: "Projected total differs ≥ 4 pts", min_odds: 1.85, max_odds: 2.1, stake_rule: { type: "units", value: 2 }, color: "#c98500" },
+    { name: "Basketball totals", sport_key: "basketball", description: "Pace-adjusted totals.", entry_conditions: "Projected total differs ≥ 4 pts", min_odds: 1.85, max_odds: 2.1, stake_rule: { type: "units", value: 2 }, color: "#c98500" },
+    { name: "Hockey puck line", sport_key: "ice_hockey", description: "Favourites −1.5 when goalie edge is large.", entry_conditions: "Save-% differential ≥ 1.5pp", min_odds: 1.9, max_odds: 3.2, stake_rule: { type: "flat", value: 30 }, color: "#9085e9" },
     { name: "In-play momentum", sport_key: "football", description: "Live overs after sustained pressure.", entry_conditions: "xG pressure index > 0.7 after 60'", stake_rule: { type: "flat", value: 25 }, color: "#d55181" },
   ];
 
@@ -61,15 +82,23 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     const t = start + (i / N) * (150 * DAY - 8 * 3_600_000) + r() * 6 * 3_600_000;
     const kindRoll = r();
     let c: Ctx;
-    if (kindRoll < 0.55) {
-      const h = pick(CLUBS); let a = pick(CLUBS); while (a === h) a = pick(CLUBS);
-      c = { sport: "football", bankroll: "Main", strategy: r() < 0.6 ? "Pinnacle value" : r() < 0.5 ? "Underdog AH" : "In-play momentum", event: `${h} v ${a}`, home: h, away: a, league: "Premier Division (demo)" };
-    } else if (kindRoll < 0.82) {
+    if (kindRoll < 0.5) {
+      const h = pick(CLUBS);
+      const domestic = r() < 0.75;   // 3 in 4 fixtures are domestic league games, the rest European ties
+      let a = pick(CLUBS);
+      while (a === h || (domestic ? teamLeague("football", CLUBS, a) !== teamLeague("football", CLUBS, h) : teamLeague("football", CLUBS, a) === teamLeague("football", CLUBS, h))) a = pick(CLUBS);
+      // domestic leagues pair clubs of the same league; European competitions may mix
+      const lg = footballLeague(h, a);
+      c = { sport: "football", bankroll: "Main", strategy: r() < 0.6 ? "Pinnacle value" : r() < 0.5 ? "Underdog AH" : "In-play momentum", event: `${h} v ${a}`, home: h, away: a, league: lg };
+    } else if (kindRoll < 0.75) {
       const h = pick(PLAYERS); let a = pick(PLAYERS); while (a === h) a = pick(PLAYERS);
-      c = { sport: "tennis", bankroll: "Tennis", strategy: "Tennis serve model", event: `${h} v ${a}`, home: h, away: a, league: "Tour (demo)" };
+      c = { sport: "tennis", bankroll: "Tennis", strategy: "Tennis serve model", event: `${h} v ${a}`, home: h, away: a, league: pick(DEMO_LEAGUES.tennis!) };
+    } else if (kindRoll < 0.9) {
+      const h = pick(HOOPS); let a = pick(HOOPS); while (a === h || teamLeague("basketball", HOOPS, a) !== teamLeague("basketball", HOOPS, h)) a = pick(HOOPS);
+      c = { sport: "basketball", bankroll: "Main", strategy: "Basketball totals", event: `${h} @ ${a}`, home: a, away: h, league: teamLeague("basketball", HOOPS, h) };
     } else {
-      const h = pick(HOOPS); let a = pick(HOOPS); while (a === h) a = pick(HOOPS);
-      c = { sport: "basketball", bankroll: "Main", strategy: "NBA totals", event: `${h} @ ${a}`, home: a, away: h, league: "Pro League (demo)" };
+      const h = pick(PUCKS); let a = pick(PUCKS); while (a === h || teamLeague("ice_hockey", PUCKS, a) !== teamLeague("ice_hockey", PUCKS, h)) a = pick(PUCKS);
+      c = { sport: "ice_hockey", bankroll: "Main", strategy: "Hockey puck line", event: `${h} v ${a}`, home: h, away: a, league: teamLeague("ice_hockey", PUCKS, h) };
     }
     const live = c.strategy === "In-play momentum" || r() < 0.08;
     const pTrue = 0.25 + r() * 0.5;
@@ -86,10 +115,11 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     const exchange = book === "betfair_ex";
     let market = "Match Winner", selection = c.home!, line: number | null = null, category = "result";
     if (c.strategy === "Underdog AH") { market = "Asian Handicap"; line = pick([0.25, 0.5, 0.75]); selection = `${c.home} +${line}`; category = "handicap"; }
-    else if (c.strategy === "NBA totals") { market = "Totals"; line = round(210 + r() * 20, 0) + 0.5; selection = `${r() < 0.5 ? "Over" : "Under"} ${line}`; category = "totals"; }
+    else if (c.strategy === "Hockey puck line") { market = "Puck Line"; line = -1.5; selection = `${c.home} -1.5`; category = "handicap"; }
+    else if (c.strategy === "Basketball totals") { market = "Totals"; line = round(210 + r() * 20, 0) + 0.5; selection = `${r() < 0.5 ? "Over" : "Under"} ${line}`; category = "totals"; }
     else if (c.strategy === "In-play momentum") { market = "Over / Under"; line = pick([1.5, 2.5, 2.25, 2.75]); selection = `Over ${line}`; category = "totals"; }
     else if (r() < 0.5) selection = c.away!;
-    const stake = c.strategy === "Underdog AH" ? 50 : c.strategy === "In-play momentum" ? 25 : c.strategy === "NBA totals" ? 40
+    const stake = c.strategy === "Underdog AH" ? 50 : c.strategy === "In-play momentum" ? 25 : c.strategy === "Basketball totals" ? 40 : c.strategy === "Hockey puck line" ? 30
       : round(Math.max(10, Math.min(250, 4000 * Math.max(0.005, ((odds - 1) * est - (1 - est)) / (odds - 1)) * 0.25)), 0);
     const recent = t > now.getTime() - 4 * DAY;
     const win = r() < pTrue;
@@ -103,7 +133,7 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     const settledAt = t + (2 + r() * 20) * 3_600_000;
     const eventStart = live ? t - 50 * 60_000 : t + (1 + r() * 30) * 3_600_000;
     bets.push({
-      bankroll: c.bankroll, placed_at: iso(t), sport_key: c.sport, event_name: c.event, home: c.home, away: c.away,
+      bankroll: c.bankroll, placed_at: iso(t), sport_key: c.sport, league_name: c.league, event_name: c.event, home: c.home, away: c.away,
       event_start: iso(Math.min(eventStart, settledAt - 60_000)), is_live: live, market, market_category: category, selection, line,
       side, bookmaker_key: book, odds: side === "lay" ? round(odds + 0.04, 2) : odds, stake: side === "lay" ? Math.min(stake, 60) : stake, commission: exchange ? 0.05 : 0,
       est_probability: side === "lay" ? undefined : est, opening_odds: opening, closing_odds: status === "pending" ? undefined : closing,
@@ -148,7 +178,7 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
     }
     const open = i >= 22;
     trades.push({
-      bankroll: "Live Trading", sport_key: "football", event_name: `${h} v ${a}`, market: "Match Odds", selection: h, bookmaker_key: "betfair_ex",
+      bankroll: "Live Trading", sport_key: "football", league_name: footballLeague(h, a), event_name: `${h} v ${a}`, market: "Match Odds", selection: h, bookmaker_key: "betfair_ex",
       currency: "EUR", commission: 0.05, opened_at: iso(t), executions: ex,
       ...(open ? {} : { outcome: r() < 1 / entry ? "win" : "lose", closed_at: iso(t + 2 * 3_600_000) }),
       notes: open ? "Open simulated position" : undefined,
@@ -178,7 +208,7 @@ export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset
         });
       }
     }
-    events.push({ ref: `demo-ev-${i}`, name: `${h} v ${a}`, home: h, away: a, sport_key: "football", start_time: iso(kick), status: "scheduled",
+    events.push({ ref: `demo-ev-${i}`, name: `${h} v ${a}`, home: h, away: a, sport_key: "football", league_name: footballLeague(h, a), start_time: iso(kick), status: "scheduled",
       markets: [{ key: "h2h", name: "Match Winner", snapshots }] });
   }
   return { bankrolls, strategies, bets, trades, events };

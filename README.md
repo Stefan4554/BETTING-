@@ -19,6 +19,7 @@ Professional sports betting tracking, trading, bankroll management and quantitat
 | **Staking Calculator** | Full / ½ / ¼ / 1/10 Kelly, flat, % bankroll, units, fixed-profit, with max-stake / %-bankroll / exposure caps; arbitrage & dutching calculator. |
 | **Risk Management** | Exposure by event, sport, league, market, bookmaker, bankroll and manual correlation groups; daily/weekly loss; drawdown; concentration (HHI); configurable limits with optional hard enforcement in the database; alerts. |
 | **Reports** | Daily, weekly, monthly, annual, sport, bookmaker, strategy, CLV, risk, bankroll and live-trading reports → PDF, Excel, CSV, print. |
+| **Notifications** | Per-type in-app / email preferences for bet settled, large profit/loss, daily/weekly loss, drawdown, odds movement, CLV update, API failure, exposure; transactional email outbox (Resend) with retries, dedupe, delivery log (queued → sent → delivered / failed / bounced) and a real test-email button. |
 | **Settings** | Display & conventions, currencies & historical FX snapshots (ECB job + manual), configurable sports/leagues/markets, data-provider connections (encrypted keys, test, quota, request log), demo workspace, security. |
 
 ## Quick start (local)
@@ -51,7 +52,10 @@ Register, then flip the **LIVE / DEMO** switch in the top bar to load a simulate
 | --- | --- |
 | `npm run dev` / `build` / `start` | Development server / production build / serve |
 | `npm run typecheck` | TypeScript, strict |
-| `npm test` | 159 unit tests: settlement, staking, CLV, arbitrage, trading, metrics, calibration, risk, FX, odds formats, providers, import/export, encryption, demo data |
+| `npm run lint` | ESLint (next/core-web-vitals + typescript) |
+| `npm run check:env` | Validates production environment variables without printing them |
+| `npm run test:live-odds` | **Live** provider check with a real key (no mocks) |
+| `npm test` | Unit tests (230+): settlement, staking, CLV, arbitrage, trading, metrics, calibration, risk, FX, odds formats, providers, import/export, encryption, demo data |
 | `npm run test:db` | Applies all migrations to a scratch Postgres and runs the SQL financial & data-isolation suite |
 | `npm run test:parity` | TypeScript ↔ SQL settlement parity on 600 randomised bets (needs `DATABASE_URL`) |
 | `npm run test:e2e` | Browser end-to-end flows against a running app (Playwright) |
@@ -69,7 +73,7 @@ Register, then flip the **LIVE / DEMO** switch in the top bar to load a simulate
 | 7 | Kelly works | `staking.test.ts`, Staking Calculator, Kelly button in the bet form |
 | 8 | All sports via configurable models | 18 seeded sports, user-defined sports/leagues/markets in Settings |
 | 9 | Live and pre-match tracking | `is_live` on bets, Live Trading module, filters and breakdowns |
-| 10 | Odds APIs configurable & testable | Settings → Data sources: encrypted key, test, browse sports, fetch, quota, request log |
+| 10 | Odds APIs configurable & testable | Settings → Data sources: encrypted key, real test connection with stored, classified results, quota, request log. Live verification requires a key and network access (`npm run test:live-odds`) |
 | 11 | Historical odds stored | `odds_snapshots` (change-only + heartbeat), opening/closing marking, history charts |
 | 12 | Risk alerts | Risk engine + limits, alert center, optional DB enforcement (SQL + e2e) |
 | 13 | Reports export | PDF / Excel / CSV / print (e2e downloads) |
