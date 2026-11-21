@@ -19,6 +19,9 @@ const schema = z.object({
   CRON_SECRET: optional,
   RESEND_API_KEY: optional,
   ALERTS_FROM_EMAIL: optional,
+  /** Resend webhook signing secret (whsec_…) for delivery / bounce confirmations. */
+  RESEND_WEBHOOK_SECRET: optional,
+  APP_URL: optional,
 });
 
 export type ServerEnv = z.infer<typeof schema>;

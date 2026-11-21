@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 type Trade = {
   id: string; event: string; event_id: string | null; market: string; selection: string; sport: string; bookmaker: string | null; bankroll_id: string; currency: string;
-  commission: number; status: string; outcome: string | null; opened_at: string; closed_at: string | null; realized: number | null; notes: string | null;
+  commission: number; status: string; outcome: string | null; opened_at: string; closed_at: string | null; realized: number | null; reserved: number; realizedPartial: number; notes: string | null;
   executions: Execution[]; price: { odds: number; at: string; source: string } | null;
 };
 type LiveEvent = { id: string; name: string; sport: string; sportId: string; start: string; provider: string | null; prices: { name: string; odds: number | null; book: string | null; at: string | null; move: number | null }[] };
@@ -50,9 +50,9 @@ export function LiveTrading({ trades, liveEvents, isDemo, hasProvider }: { trade
     const lay = m?.lay ? Number(m.lay) : back ? Math.round((back + Math.max(0.01, back * 0.01)) * 100) / 100 : undefined;
     return { back: back && back > 1 ? back : null, lay: lay && lay > 1 ? lay : null, simulated: isDemo && !m?.back };
   };
-  let unreal = 0, exposure = 0;
+  let unreal = 0, exposure = 0, partial = 0;
   for (const t of open) {
-    const p = position(t.executions); exposure += p.exposure;
+    exposure += t.reserved; partial += t.realizedPartial;
     const g = greenUp(t.executions, priceOf(t)); if (g) unreal += g.lockedPnl;
   }
   const realized = closed.reduce((s, t) => s + (t.realized ?? 0), 0);
@@ -67,9 +67,9 @@ export function LiveTrading({ trades, liveEvents, isDemo, hasProvider }: { trade
       {!isDemo && !hasProvider && <Notice>No live data provider connected — enter current prices manually per position, or connect a provider with in-play odds under Settings → Data sources.</Notice>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <Kpi label="Open positions" value={String(open.length)} />
-        <Kpi label="Open exposure" value={fmtMoney(exposure, c)} tone={exposure ? "warn" : "neutral"} sub="worst case" />
+        <Kpi label="Reserved in ledger" value={fmtMoney(exposure, c)} tone={exposure ? "warn" : "neutral"} sub="open-trade worst case, held from available" />
         <Kpi label="Unrealised P/L" value={fmtMoney(unreal, c, true)} tone={toneOf(unreal)} sub="if greened up now" />
-        <Kpi label="Realised P/L" value={fmtMoney(realized, c, true)} tone={toneOf(realized)} sub={`${closed.length} closed trades`} />
+        <Kpi label="Realised P/L" value={fmtMoney(realized + partial, c, true)} tone={toneOf(realized + partial)} sub={`${closed.length} closed · ${fmtMoney(partial, c, true)} from partial closes`} />
         <Kpi label="Winning trades" value={fmtPct(closed.length ? wins / closed.length : null)} />
         <Kpi label="Live events" value={String(liveEvents.length)} sub={isDemo ? "simulated" : hasProvider ? "from provider" : "no provider"} />
       </div>
@@ -78,7 +78,7 @@ export function LiveTrading({ trades, liveEvents, isDemo, hasProvider }: { trade
         {open.length === 0 ? <EmptyState title="No open trades">Open a trade from a live event below or with “New trade”.</EmptyState> : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="bg-panel-2"><tr>{["Event / selection", "Opened", "Back (stake @ avg)", "Lay (stake @ avg)", "If wins", "If loses", "Exposure", "Price back / lay", "Green-up", "Unrealised", ""].map((h) => <th key={h} className="label-xs h-7 whitespace-nowrap px-2 text-left">{h}</th>)}</tr></thead>
+              <thead className="bg-panel-2"><tr>{["Event / selection", "Opened", "Back (stake @ avg)", "Lay (stake @ avg)", "If wins", "If loses", "Reserved", "Price back / lay", "Green-up", "Unrealised", ""].map((h) => <th key={h} className="label-xs h-7 whitespace-nowrap px-2 text-left">{h}</th>)}</tr></thead>
               <tbody>{open.map((t) => {
                 const p = position(t.executions), pr = priceOf(t), g = greenUp(t.executions, pr);
                 return (
@@ -89,7 +89,7 @@ export function LiveTrading({ trades, liveEvents, isDemo, hasProvider }: { trade
                     <td className="num px-2 py-1.5">{p.layStake ? `${fmtMoney(p.layStake, t.currency)} @ ${p.avgLayOdds?.toFixed(2)}` : "—"}</td>
                     <td className="px-2 py-1.5"><Money value={p.ifWin} ccy={t.currency} signed /></td>
                     <td className="px-2 py-1.5"><Money value={p.ifLose} ccy={t.currency} signed /></td>
-                    <td className="px-2 py-1.5"><Money value={p.exposure} ccy={t.currency} /></td>
+                    <td className="px-2 py-1.5"><Money value={t.reserved} ccy={t.currency} />{t.realizedPartial ? <div className="text-[10px] text-dim">realised {fmtMoney(t.realizedPartial, t.currency, true)}</div> : null}</td>
                     <td className="px-2 py-1.5">
                       <div className="flex gap-1">
                         <Input className="h-6 w-16" inputMode="decimal" placeholder={pr.back?.toFixed(2) ?? "back"} value={manual[t.id]?.back ?? ""} onChange={(e) => setManual((m) => ({ ...m, [t.id]: { back: e.target.value, lay: m[t.id]?.lay ?? "" } }))} aria-label="Current back price" />
@@ -201,7 +201,7 @@ function ExecutionDialog({ t, price, onClose }: { t: Trade; price: { back: numbe
           <Label>{f.side === "cashout" ? "Back stake closed" : "Stake"}<Input inputMode="decimal" value={f.stake} onChange={(e) => setF({ ...f, stake: e.target.value })} /></Label>
           <Label>Note<Input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Label>
         </div>
-        {preview && <p className="mt-2 text-xs text-muted">After execution: if wins <Money value={preview.ifWin} ccy={t.currency} signed /> · if loses <Money value={preview.ifLose} ccy={t.currency} signed /> · exposure <Money value={preview.exposure} ccy={t.currency} /></p>}
+        {preview && <p className="mt-2 text-xs text-muted">After execution: if wins <Money value={preview.ifWin} ccy={t.currency} signed /> · if loses <Money value={preview.ifLose} ccy={t.currency} signed /> · reserved <Money value={preview.reserved} ccy={t.currency} /> ({preview.reserved > t.reserved ? `holds ${fmtMoney(preview.reserved - t.reserved, t.currency)} more` : preview.reserved < t.reserved ? `releases ${fmtMoney(t.reserved - preview.reserved, t.currency)}` : "unchanged"}{preview.realizedPartial !== t.realizedPartial ? `, realises ${fmtMoney(preview.realizedPartial - t.realizedPartial, t.currency, true)}` : ""})</p>}
         <div className="mt-3 flex justify-end"><Button onClick={submit}>Record</Button></div>
       </DialogContent>
     </Dialog>

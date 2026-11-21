@@ -6,11 +6,11 @@
  */
 import { d, money, type Dec, type Num } from "./decimal";
 
-export type BetStatus = "pending" | "won" | "lost" | "void" | "half_won" | "half_lost" | "cashed_out";
-export type LegStatus = Exclude<BetStatus, "cashed_out">;
+export type BetStatus = "pending" | "won" | "lost" | "void" | "half_won" | "half_lost" | "cashed_out" | "partial_win" | "partial_loss" | "break_even";
+export type LegStatus = "pending" | "won" | "lost" | "void" | "half_won" | "half_lost";
 export type Side = "back" | "lay";
 
-export const SETTLED_STATUSES: BetStatus[] = ["won", "lost", "void", "half_won", "half_lost", "cashed_out"];
+export const SETTLED_STATUSES: BetStatus[] = ["won", "lost", "void", "half_won", "half_lost", "cashed_out", "partial_win", "partial_loss", "break_even"];
 
 export class SettlementError extends Error {}
 
@@ -80,7 +80,9 @@ export function betProfit(i: ProfitInput): Dec | null {
   const cashAmt = d(i.cashoutAmount ?? 0);
   if (i.status === "cashed_out") return money(cashAmt.minus(stake));
   const open = stake.minus(cashed);
-  const f = i.factor !== undefined ? d(i.factor) : legFactor(i.status, i.odds);
+  if (i.factor === undefined && (i.status === "partial_win" || i.status === "partial_loss" || i.status === "break_even"))
+    throw new SettlementError(`Status ${i.status} needs the accumulator factor`);
+  const f = i.factor !== undefined ? d(i.factor) : legFactor(i.status as LegStatus, i.odds);
   let gross = open.times(f.minus(1));
   if (gross.gt(0)) gross = gross.times(d(1).minus(c));
   return money(gross).plus(money(cashAmt.minus(cashed)));
@@ -88,13 +90,56 @@ export function betProfit(i: ProfitInput): Dec | null {
 
 export interface LegResult { odds: Num; status: LegStatus }
 
-/** Accumulator: status and factor from legs (lost if any leg lost, void if all void). */
+/**
+ * One path of an accumulator after splitting half-results: a half-won leg sends half of the
+ * running stake on at the leg odds and returns half at 1.00; a half-lost leg returns half at
+ * 1.00 and loses half. Components multiply out to exactly stake × Π leg factors.
+ */
+export interface AccaComponent { stake: Dec; odds: Dec; payout: Dec; path: string[] }
+
+export function accumulatorComponents(stake: Num, legs: LegResult[]): AccaComponent[] {
+  let comps: AccaComponent[] = [{ stake: d(stake), odds: d(1), payout: d(stake), path: [] }];
+  legs.forEach((l, i) => {
+    const o = d(l.odds);
+    const next: AccaComponent[] = [];
+    for (const c of comps) {
+      const push = (share: Num, mult: Num, tag: string) => {
+        const st = c.stake.times(share);
+        next.push({ stake: st, odds: c.odds.times(mult), payout: st.times(c.odds).times(mult), path: [...c.path, `L${i + 1}:${tag}`] });
+      };
+      switch (l.status) {
+        case "won": push(1, o, "won"); break;
+        case "void": push(1, 1, "void"); break;
+        case "lost": push(1, 0, "lost"); break;
+        case "half_won": push("0.5", o, "won½"); push("0.5", 1, "void½"); break;
+        case "half_lost": push("0.5", 1, "void½"); push("0.5", 0, "lost½"); break;
+        case "pending": throw new SettlementError("Pending legs cannot be split");
+      }
+    }
+    comps = next;
+  });
+  return comps;
+}
+
+/**
+ * Accumulator result from the ACTUAL return, never from individual leg labels:
+ *   lost (payout 0) · void (every leg void) · won (all non-void legs fully won) ·
+ *   partial_win (payout > stake with half results) · break_even (payout = stake) · partial_loss (0 < payout < stake).
+ */
 export function settleAccumulator(legs: LegResult[]): { status: BetStatus; factor: Dec } | { status: "pending"; factor: null } {
   if (legs.length < 2) throw new SettlementError("An accumulator needs at least two legs");
   if (legs.some((l) => l.status === "lost")) return { status: "lost", factor: d(0) };
   if (legs.some((l) => l.status === "pending")) return { status: "pending", factor: null };
   const factor = legs.reduce((f, l) => f.times(legFactor(l.status, l.odds)), d(1));
-  return { status: legs.every((l) => l.status === "void") ? "void" : "won", factor };
+  const halves = legs.some((l) => l.status === "half_won" || l.status === "half_lost");
+  let status: BetStatus;
+  if (factor.isZero()) status = "lost";
+  else if (legs.every((l) => l.status === "void")) status = "void";
+  else if (!halves && factor.gt(1)) status = "won";
+  else if (factor.gt(1)) status = "partial_win";
+  else if (factor.eq(1)) status = "break_even";
+  else status = "partial_loss";
+  return { status, factor };
 }
 
 export function accumulatorOdds(legOdds: Num[]): Dec {

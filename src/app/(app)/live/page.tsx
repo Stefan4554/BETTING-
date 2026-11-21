@@ -19,7 +19,7 @@ export default async function LivePage() {
     trades={trades.map((t) => ({
       id: t.id, event: t.event_name, event_id: t.event_id, market: t.market, selection: t.selection, sport: t.sports?.name ?? "", bookmaker: t.bookmakers?.name ?? null,
       bankroll_id: t.bankroll_id, currency: t.currency, commission: Number(t.commission), status: t.status, outcome: t.outcome, opened_at: t.opened_at, closed_at: t.closed_at,
-      realized: t.realized_pnl == null ? null : Number(t.realized_pnl), notes: t.notes, executions: executionsOf(t), price: priceFor(t.event_id, t.selection),
+      realized: t.realized_pnl == null ? null : Number(t.realized_pnl), reserved: Number(t.reserved), realizedPartial: Number(t.realized_partial), notes: t.notes, executions: executionsOf(t), price: priceFor(t.event_id, t.selection),
     }))}
     liveEvents={liveEvents.map((e) => ({ id: e.id, name: e.name, sport: e.sport, sportId: e.sportId, start: e.start, provider: e.provider,
       prices: (e.markets.find((m) => m.key === "h2h")?.selections ?? []).map((s) => ({ name: s.name, odds: s.best?.odds ?? null, book: s.best?.bookmaker ?? null, at: s.best?.updatedAt ?? null, move: s.move?.changePct ?? null })) }))} />;

@@ -6,6 +6,7 @@ export interface ProviderConfig {
   sports?: string[];         // provider sport/league keys to poll
   season?: number;           // API-Football
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
 }
 
 export interface ProviderSport { key: string; title: string; group: string; sportKey: string; active: boolean; hasOutrights: boolean }
@@ -26,12 +27,26 @@ export interface NormalizedEvent {
 }
 
 export interface QuotaInfo { used: number | null; remaining: number | null; lastCost: number | null }
-export interface TestResult { ok: boolean; message: string; quota?: QuotaInfo; latencyMs?: number }
+export interface TestCheck { name: string; ok: boolean; detail: string }
+export interface TestResult {
+  ok: boolean;
+  /** Connection status to store: ok | auth_error | rate_limited | outage | unreachable | invalid_response | error */
+  status: string;
+  message: string;
+  quota?: QuotaInfo;
+  latencyMs?: number;
+  checks: TestCheck[];
+  sample?: { sports?: number; activeSports?: number; sportKey?: string; oddsEvents?: number; bookmakers?: number; markets?: number };
+  testedAt: string;
+  /** true only when a real HTTP response was received from the provider */
+  reachedProvider: boolean;
+}
 
 export interface OddsProvider {
   id: string;
   name: string;
-  test(cfg: ProviderConfig): Promise<TestResult>;
+  /** Real request(s) to the provider; `sampleSport` additionally fetches & parses one odds payload (costs credits). */
+  test(cfg: ProviderConfig, opts?: { sampleSport?: string }): Promise<TestResult>;
   listSports(cfg: ProviderConfig): Promise<ProviderSport[]>;
   fetchOdds(cfg: ProviderConfig, providerSportKey: string): Promise<{ events: NormalizedEvent[]; quota: QuotaInfo; fetchedAt: string }>;
 }

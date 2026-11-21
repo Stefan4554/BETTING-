@@ -24,7 +24,7 @@ export async function searchAll(q: string) {
 export async function recentAlerts() {
   return run(async () => {
     const ctx = await getContext();
-    const { data } = await ctx.sb.from("alerts").select("*").eq("is_demo", ctx.isDemo).order("created_at", { ascending: false }).limit(15);
+    const { data } = await ctx.sb.from("alerts").select("*").eq("is_demo", ctx.isDemo).eq("in_app", true).order("created_at", { ascending: false }).limit(15);
     return data ?? [];
   }, false);
 }

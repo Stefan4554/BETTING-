@@ -168,3 +168,14 @@ export async function setClosingOdds(id: string, odds: number | null) {
     return id;
   });
 }
+
+/** Record accumulator leg results; the database settles automatically once the outcome is known. */
+export async function setLegResults(id: string, legs: { leg_no: number; status: "pending" | "won" | "lost" | "void" | "half_won" | "half_lost" }[]) {
+  return run(async () => {
+    const ctx = await getContext();
+    const l = z.array(z.object({ leg_no: z.number().int().min(1), status: z.enum(["pending", "won", "lost", "void", "half_won", "half_lost"]) })).min(1).parse(legs);
+    const bet = must(await ctx.sb.rpc("set_leg_results", { p_bet: id, p_legs: l as never }));
+    await evaluateRiskAlerts(ctx).catch(() => 0);
+    return { status: bet.status, profit: bet.profit };
+  });
+}

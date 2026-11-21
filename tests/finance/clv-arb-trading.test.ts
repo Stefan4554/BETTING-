@@ -104,3 +104,42 @@ describe("trading positions", () => {
   });
   it("cannot cash out more than backed", () => expect(() => position([{ side: "cashout", stake: 10, amount: 5 }])).toThrow());
 });
+
+import { tradeLedger } from "@/lib/finance/trading";
+
+describe("trade reservation accounting", () => {
+  const sum = (xs: { amount: number }[]) => Math.round(xs.reduce((s, x) => s + x.amount, 0) * 100) / 100;
+  it("back position reserves its stake", () => {
+    expect(position([{ side: "back", odds: 3, stake: 100 }]).reserved).toBe(100);
+    expect(tradeLedger([{ side: "back", odds: 3, stake: 100 }], null).postings).toEqual([{ kind: "reservation", amount: -100 }]);
+  });
+  it("lay position reserves its liability", () => expect(position([{ side: "lay", odds: 4, stake: 50 }]).reserved).toBe(150));
+  it("a full hedge releases everything; settlement pays only the P/L", () => {
+    const ex = [{ side: "back" as const, odds: 3, stake: 100 }, { side: "lay" as const, odds: 2.4, stake: 120 }];
+    const l = tradeLedger(ex, "win", 0.05);
+    expect(l.postings).toEqual([{ kind: "reservation", amount: -100 }, { kind: "reservation", amount: 100 }, { kind: "settlement", amount: 30.4 }]);
+    expect(sum(l.postings)).toBe(30.4);
+  });
+  it("partial close releases part of the reservation and realises P/L", () => {
+    const ex = [{ side: "back" as const, odds: 4, stake: 100 }, { side: "cashout" as const, stake: 40, amount: 70 }];
+    const l = tradeLedger(ex, null);
+    expect(l.reserved).toBe(60);
+    expect(l.realizedPartial).toBe(30);
+    expect(l.postings).toEqual([{ kind: "reservation", amount: -100 }, { kind: "reservation", amount: 40 }, { kind: "cashout", amount: 30 }]);
+  });
+  it("full close by cash-out: final settlement posts nothing more", () => {
+    const ex = [{ side: "back" as const, odds: 4, stake: 100 }, { side: "cashout" as const, stake: 40, amount: 70 }, { side: "cashout" as const, stake: 60, amount: 90 }];
+    const l = tradeLedger(ex, "lose");
+    expect(l.postings.at(-1)).toEqual({ kind: "settlement", amount: 0 });
+    expect(sum(l.postings)).toBe(60);
+  });
+  it("never double counts: postings of any closed trade sum to its realised P/L", () => {
+    const cases: [Parameters<typeof tradeLedger>[0], "win" | "lose" | "void", number][] = [
+      [[{ side: "lay", odds: 4, stake: 50 }], "win", 0],
+      [[{ side: "lay", odds: 4, stake: 50 }], "lose", 0.02],
+      [[{ side: "back", odds: 2.5, stake: 80 }, { side: "lay", odds: 3.1, stake: 40 }, { side: "cashout", stake: 30, amount: 12 }], "win", 0.05],
+      [[{ side: "back", odds: 2.5, stake: 80 }, { side: "back", odds: 2.2, stake: 20 }], "void", 0],
+    ];
+    for (const [ex, o, c] of cases) expect(sum(tradeLedger(ex, o, c).postings)).toBe(settlePosition(ex, o, c));
+  });
+});

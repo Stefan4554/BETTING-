@@ -1,14 +1,14 @@
 import "server-only";
 import type { DB } from "@/lib/supabase/server";
 import { getProvider } from "@/lib/providers/registry";
-import { onUsage, type UsageRecord } from "@/lib/providers/http";
+import { CONNECTION_STATUS, onUsage, ProviderError, type UsageRecord } from "@/lib/providers/http";
 import type { NormalizedEvent, ProviderConfig } from "@/lib/providers/types";
 import { decryptSecret } from "./crypto";
 
 /** Snapshots are stored when the price/line/suspension changes, or every HEARTBEAT minutes as a keep-alive. */
 const HEARTBEAT_MS = 30 * 60_000;
 
-export interface IngestResult { events: number; markets: number; snapshots: number; closing: number; alerts: number; errors: string[]; quota?: { used: number | null; remaining: number | null } }
+export interface IngestResult { events: number; markets: number; snapshots: number; closing: number; alerts: number; errors: string[]; errorStatus: string | null; quota?: { used: number | null; remaining: number | null } }
 
 export interface ConnectionRow {
   id: string; user_id: string; provider_id: string; config: Record<string, unknown>; last_success_at: string | null;
@@ -31,7 +31,7 @@ export async function loadConnectionKey(admin: DB, connectionId: string): Promis
  */
 export async function ingest(admin: DB, opts: { providerId: string; config: ProviderConfig; ownerId: string | null; connectionId?: string; userIdForLogs?: string | null }): Promise<IngestResult> {
   const provider = getProvider(opts.providerId);
-  const res: IngestResult = { events: 0, markets: 0, snapshots: 0, closing: 0, alerts: 0, errors: [] };
+  const res: IngestResult = { events: 0, markets: 0, snapshots: 0, closing: 0, alerts: 0, errors: [], errorStatus: null };
   if (!provider) { res.errors.push(`No adapter for ${opts.providerId}`); return res; }
   const logs: UsageRecord[] = [];
   const off = onUsage((r) => { if (r.provider === opts.providerId) logs.push(r); });
@@ -63,7 +63,12 @@ export async function ingest(admin: DB, opts: { providerId: string; config: Prov
         const r = await provider.fetchOdds(opts.config, sk);
         events = r.events;
         res.quota = { used: r.quota.used, remaining: r.quota.remaining };
-      } catch (e) { res.errors.push(`${sk}: ${(e as Error).message}`); continue; }
+      } catch (e) {
+        res.errors.push(`${sk}: ${(e as Error).message}`);
+        res.errorStatus ??= e instanceof ProviderError ? CONNECTION_STATUS[e.kind] : "error";
+        if (e instanceof ProviderError && (e.kind === "auth" || e.kind === "rate_limit")) break; // pointless to try other sports
+        continue;
+      }
       if (!events.length) continue;
 
       // Events (upsert on provider + external id + owner)
@@ -168,4 +173,16 @@ async function movementAlerts(admin: DB, userId: string): Promise<number> {
   if (!rows.length) return 0;
   await admin.from("alerts").upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
   return rows.length;
+}
+
+/** Persist the outcome of an ingestion run on the connection row. */
+export async function recordIngestOutcome(db: DB, conn: { id: string; quota_used: number | null; quota_remaining: number | null }, r: IngestResult) {
+  const failed = r.errors.length > 0 && r.events === 0;
+  const now = new Date().toISOString();
+  await db.from("api_connections").update({
+    status: failed ? (r.errorStatus ?? "error") : "ok", last_error: r.errors[0] ?? null,
+    ...(failed ? {} : { last_success_at: now }), ...(r.events > 0 ? { last_odds_at: now, last_odds_events: r.events } : {}),
+    quota_used: r.quota?.used ?? conn.quota_used, quota_remaining: r.quota?.remaining ?? conn.quota_remaining,
+  }).eq("id", conn.id);
+  return failed;
 }

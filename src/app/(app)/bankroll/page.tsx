@@ -1,7 +1,6 @@
 import { getContext } from "@/lib/server/context";
-import { executionsOf, loadBets, loadTrades, loadTransactions } from "@/lib/server/data";
+import { loadBets, loadTrades, loadTransactions } from "@/lib/server/data";
 import { drawdown } from "@/lib/finance/metrics";
-import { position } from "@/lib/finance/trading";
 import { BankrollView, type BankrollStats } from "@/components/bankroll/bankroll";
 
 export const metadata = { title: "Bankroll Manager" };
@@ -16,11 +15,14 @@ export default async function BankrollPage() {
     const sum = (types: string[]) => myTx.filter((t) => types.includes(t.type)).reduce((s, t) => s + Number(t.amount), 0);
     const pending = myBets.filter((b) => b.status === "pending");
     const reserved = pending.reduce((s, b) => s + (Number(b.liability) - Number(b.cashout_amount)) * Number(b.fx_rate), 0);
-    const tradeExposure = myTrades.filter((t) => t.status === "open").reduce((s, t) => s + position(executionsOf(t)).exposure * Number(t.fx_rate), 0);
+    const openTrades = myTrades.filter((t) => t.status === "open");
+    const tradeExposure = openTrades.reduce((s, t) => s + Number(t.reserved_base), 0);
+    const realizedOpen = openTrades.reduce((s, t) => s + Number(t.realized_partial_base), 0);
     const settled = myBets.filter((b) => b.status !== "pending");
     const pnlEvents = [
       ...settled.map((b) => ({ at: b.settled_at ?? b.placed_at, p: Number(b.profit) * Number(b.fx_rate) })),
       ...myTrades.filter((t) => t.status !== "open").map((t) => ({ at: t.closed_at ?? t.opened_at, p: Number(t.realized_pnl) * Number(t.fx_rate) })),
+      ...openTrades.filter((t) => Number(t.realized_partial_base) !== 0).map((t) => ({ at: t.opened_at, p: Number(t.realized_partial_base) })),
     ].sort((a, b) => a.at.localeCompare(b.at));
     let cum = 0;
     const path = pnlEvents.map((e) => ({ at: e.at, cum: (cum += e.p) }));
@@ -31,7 +33,7 @@ export default async function BankrollPage() {
     const balance = Number(br.balance);
     return {
       id: br.id, name: br.name, kind: br.kind, currency: br.currency, archived: br.archived, allowNegative: br.allow_negative,
-      balance, reserved, tradeExposure, equity: balance + reserved, available: balance - tradeExposure, openExposure: reserved + tradeExposure,
+      balance, reserved, tradeExposure, equity: balance + reserved + tradeExposure, available: balance, openExposure: reserved + tradeExposure, realizedOpenTrades: realizedOpen,
       starting: firstCapital ? Number(firstCapital.amount) : 0,
       deposits: sum(["deposit"]), withdrawals: -sum(["withdrawal"]), transfers: sum(["transfer_in", "transfer_out"]), adjustments: sum(["adjustment"]),
       capital, totalStaked: settled.reduce((s, b) => s + Number(b.stake) * Number(b.fx_rate), 0),

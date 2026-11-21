@@ -118,7 +118,7 @@ begin
   exception when others then assert sqlerrm like 'VALIDATION:%pending%', sqlerrm; end;
   -- won × void × half_won(3.0 → 2.0) = 4.0 → +30
   b := settle_bet(b.id, null, '[{"leg_no":1,"status":"won"},{"leg_no":2,"status":"void"},{"leg_no":3,"status":"half_won"}]'::jsonb);
-  assert b.status = 'won' and b.profit = 30 and b.actual_payout = 40, format('acca factor profit %s', b.profit);
+  assert b.status = 'partial_win' and b.profit = 30 and b.actual_payout = 40, format('acca with a half-won leg is a partial win: %s %s', b.status, b.profit);
 
   -- a lost leg loses the accumulator even with others pending
   b := place_bet(jsonb_build_object('bankroll_id', br, 'event_name', 'Double', 'stake', 10, 'legs', jsonb_build_array(
@@ -133,6 +133,61 @@ begin
   b := settle_bet(b.id, null, '[{"leg_no":1,"status":"void"},{"leg_no":2,"status":"void"}]'::jsonb);
   assert b.status = 'void' and b.profit = 0, 'acca void';
   assert (select balance from bankrolls where id = br) = 1449, format('acca balance %s', (select balance from bankrolls where id = br));
+end $$;
+
+-- ── accumulators: result from the actual payout; leagues by name ────────────
+do $$
+declare br bankrolls; b bets; ep uuid;
+begin
+  br := create_bankroll('Acca tests', 'EUR', 'custom', null, 500);
+  -- all legs won → won
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A1', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',2.0), jsonb_build_object('event_name','y','selection','y','odds',1.5))));
+  b := settle_bet(b.id, null, '[{"leg_no":1,"status":"won"},{"leg_no":2,"status":"won"}]'::jsonb);
+  assert b.status = 'won' and b.profit = 20, format('all won %s %s', b.status, b.profit);
+  -- won × half_lost: payout = 10 × 2.0 × 0.5 = 10 = stake → break-even, NOT won
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A2', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',2.0), jsonb_build_object('event_name','y','selection','y -0.25','odds',1.9))));
+  b := settle_bet(b.id, null, '[{"leg_no":1,"status":"won"},{"leg_no":2,"status":"half_lost"}]'::jsonb);
+  assert b.status = 'break_even' and b.profit = 0 and b.actual_payout = 10, format('break-even %s %s', b.status, b.profit);
+  -- payout below stake: 10 × 1.5 × 0.5 = 7.50 → partial loss −2.50 (previously mislabelled "won")
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A3', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',1.5), jsonb_build_object('event_name','y','selection','y','odds',1.9))));
+  b := settle_bet(b.id, null, '[{"leg_no":1,"status":"won"},{"leg_no":2,"status":"half_lost"}]'::jsonb);
+  assert b.status = 'partial_loss' and b.profit = -2.50 and b.actual_payout = 7.50, format('partial loss %s %s', b.status, b.profit);
+  -- multiple Asian-handicap legs: half_won(1.9) × half_won(1.95) × won(2.0) = 1.45 × 1.475 × 2 = 4.2775 → +32.78
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A4', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x -0.25','odds',1.9), jsonb_build_object('event_name','y','selection','y +0.75','odds',1.95),
+        jsonb_build_object('event_name','z','selection','z','odds',2.0))));
+  b := settle_bet(b.id, null, '[{"leg_no":1,"status":"half_won"},{"leg_no":2,"status":"half_won"},{"leg_no":3,"status":"won"}]'::jsonb);
+  assert b.status = 'partial_win' and b.profit = 32.78, format('multi-AH %s %s', b.status, b.profit);
+  -- multiple void legs + one winner → odds reduce to the winner → won
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A5', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',1.8), jsonb_build_object('event_name','y','selection','y','odds',1.7),
+        jsonb_build_object('event_name','z','selection','z','odds',2.5))));
+  b := settle_bet(b.id, null, '[{"leg_no":1,"status":"void"},{"leg_no":2,"status":"void"},{"leg_no":3,"status":"won"}]'::jsonb);
+  assert b.status = 'won' and b.profit = 15, format('voids reduce to 1.00 %s %s', b.status, b.profit);
+  -- progressive leg results (partial settlement)
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A6', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',2.0), jsonb_build_object('event_name','y','selection','y','odds',1.8))));
+  b := set_leg_results(b.id, '[{"leg_no":1,"status":"won"}]'::jsonb);
+  assert b.status = 'pending' and (select status from bet_legs where bet_id = b.id and leg_no = 1) = 'won', 'leg result stored, bet still open';
+  b := set_leg_results(b.id, '[{"leg_no":2,"status":"half_lost"}]'::jsonb);
+  assert b.status = 'break_even' and b.profit = 0, format('auto-settled when last leg decided %s', b.status);
+  -- a losing leg settles immediately even with legs open
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'A7', 'stake', 10, 'legs', jsonb_build_array(
+        jsonb_build_object('event_name','x','selection','x','odds',2.0), jsonb_build_object('event_name','y','selection','y','odds',1.8))));
+  b := set_leg_results(b.id, '[{"leg_no":2,"status":"lost"}]'::jsonb);
+  assert b.status = 'lost' and b.profit = -10, 'lost leg settles acca';
+  assert (select balance from bankrolls where id = br.id) = 500 + 20 + 0 - 2.50 + 32.78 + 15 + 0 - 10, 'acca bankroll';
+
+  -- leagues resolved by name within the bet's sport; unknown names create a private league
+  select id into ep from leagues where name = 'English Premier League' and owner_id is null;
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'L1', 'selection', 'x', 'odds', 2, 'stake', 1, 'sport_key', 'football', 'league_name', 'english premier league'));
+  assert b.league_id = ep, 'platform league by name';
+  b := place_bet(jsonb_build_object('bankroll_id', br.id, 'event_name', 'L2', 'selection', 'x', 'odds', 2, 'stake', 1, 'sport_key', 'tennis', 'league_name', 'English Premier League'));
+  assert b.league_id <> ep and (select sport_id from leagues where id = b.league_id) = b.sport_id, 'never links a league of another sport';
+  assert (select owner_id from leagues where id = b.league_id) = auth.uid(), 'unknown league created privately';
 end $$;
 
 -- ── reopen, edit, delete, bulk ──────────────────────────────────────────────
@@ -270,6 +325,126 @@ begin
   assert t.realized_pnl = -20, 'trade lose';
 end $$;
 
+-- ── live trading: exposure reserved in the ledger ─────────────────────────
+do $$
+declare br bankrolls; t trades; t2 trades; t3 trades; t4 trades; v0 numeric; x record;
+begin
+  br := create_bankroll('Trading', 'EUR', 'live', null, 1000);
+  v0 := 1000;
+  -- back position: the stake is reserved immediately
+  t := open_trade(jsonb_build_object('bankroll_id', br.id, 'event_name', 'R1', 'selection', 'Home', 'commission', 0.05,
+       'executions', jsonb_build_array(jsonb_build_object('side','back','odds',3.0,'stake',100))));
+  assert t.reserved_base = 100 and (select balance from bankrolls where id = br.id) = v0 - 100, 'back stake reserved';
+  -- hedge: lay 120 @ 2.4 → if win +32 / if lose +20 → nothing at risk → full release
+  perform add_trade_execution(t.id, 'lay', 2.4, 120);
+  select * into t from trades where id = t.id;
+  assert t.reserved_base = 0 and (select balance from bankrolls where id = br.id) = v0, 'hedge releases reservation';
+  -- lay position: liability 50 × (4 − 1) = 150 reserved
+  t2 := open_trade(jsonb_build_object('bankroll_id', br.id, 'event_name', 'R2', 'selection', 'Away',
+       'executions', jsonb_build_array(jsonb_build_object('side','lay','odds',4.0,'stake',50))));
+  assert t2.reserved_base = 150, 'lay liability reserved';
+  -- back position with partial then full cash-out
+  t3 := open_trade(jsonb_build_object('bankroll_id', br.id, 'event_name', 'R3', 'selection', 'Draw',
+       'executions', jsonb_build_array(jsonb_build_object('side','back','odds',4.0,'stake',100))));
+  assert (select balance from bankrolls where id = br.id) = v0 - 250, 'multiple open positions reserved';
+  assert (select sum(reserved_base) from trades where bankroll_id = br.id and status = 'open') = 250, 'reserved total';
+  perform add_trade_execution(t3.id, 'cashout', null, 40, 70);   -- releases 40, realises +30
+  select * into t3 from trades where id = t3.id;
+  assert t3.reserved_base = 60 and t3.realized_partial = 30, format('partial close %s %s', t3.reserved_base, t3.realized_partial);
+  assert (select balance from bankrolls where id = br.id) = v0 - 250 + 40 + 30, 'partial close credited';
+  perform add_trade_execution(t3.id, 'cashout', null, 60, 90);   -- releases 60, realises +30
+  select * into t3 from trades where id = t3.id;
+  assert t3.reserved_base = 0 and t3.realized_partial = 60, 'fully closed by cash-out';
+  t3 := settle_trade(t3.id, 'lose');
+  assert t3.realized_pnl = 60, format('closed trade P/L %s', t3.realized_pnl);
+  assert (select balance from bankrolls where id = br.id) = v0 - 150 + 60, 'final close posts no double count (lay reserved 150, +60 realised)';
+  -- settle hedged trade (commission 5% on +32) and the lay (selection won → lay loses 150)
+  t := settle_trade(t.id, 'win');
+  assert t.realized_pnl = 30.40, 'commission on net market winnings';
+  t2 := settle_trade(t2.id, 'win');
+  assert t2.realized_pnl = -150, 'lay lost';
+  assert (select balance from bankrolls where id = br.id) = v0 + 30.40 + 60 - 150, format('bankroll after closes %s', (select balance from bankrolls where id = br.id));
+  -- reservations are never P/L: every closed trade's ledger entries sum to its realised P/L
+  for x in select tr.id, tr.realized_pnl, (select sum(amount) from bankroll_transactions where trade_id = tr.id) as net,
+                  (select count(*) from bankroll_transactions where trade_id = tr.id) as n
+             from trades tr where tr.bankroll_id = br.id loop
+    assert x.net = x.realized_pnl, format('trade %s ledger %s ≠ P/L %s', x.id, x.net, x.realized_pnl);
+    assert x.n >= 2, 'opening and closing are both in the ledger';
+  end loop;
+  assert (select count(*) from bankroll_transactions where trade_id = t3.id) = 6, 'reserve, 2 releases, 2 realisations, settlement';
+  -- reservation cannot exceed available funds
+  begin
+    perform open_trade(jsonb_build_object('bankroll_id', br.id, 'event_name', 'Too big', 'selection', 'x',
+       'executions', jsonb_build_array(jsonb_build_object('side','lay','odds',20.0,'stake',100))));
+    raise exception 'expected INSUFFICIENT_FUNDS';
+  exception when others then assert sqlerrm like 'INSUFFICIENT_FUNDS%', sqlerrm; end;
+  -- leave one position open for the global invariant check
+  t4 := open_trade(jsonb_build_object('bankroll_id', br.id, 'event_name', 'R4', 'selection', 'x',
+       'executions', jsonb_build_array(jsonb_build_object('side','back','odds',2.0,'stake',25), jsonb_build_object('side','cashout','stake',5,'amount',6))));
+  assert t4.reserved_base = 20 and t4.realized_partial = 1, 'open trade with a partial close';
+end $$;
+
+-- ── ledger invariant across bets AND trades, every bankroll ─────────────────
+do $$
+declare b bankrolls; v_cap numeric; v_bets numeric; v_res numeric; v_trades numeric; v_open numeric;
+begin
+  for b in select * from bankrolls where user_id = auth.uid() loop
+    select coalesce(sum(amount), 0) into v_cap from bankroll_transactions where bankroll_id = b.id and type in ('deposit','withdrawal','transfer_in','transfer_out','adjustment');
+    select coalesce(sum(round(profit * fx_rate, 2)), 0) into v_bets from bets where bankroll_id = b.id and status <> 'pending' and deleted_at is null;
+    select coalesce(sum(round(liability * fx_rate, 2) - round(cashout_amount * fx_rate, 2)), 0) into v_res from bets where bankroll_id = b.id and status = 'pending' and deleted_at is null;
+    select coalesce(sum(round(realized_pnl * fx_rate, 2)), 0) into v_trades from trades where bankroll_id = b.id and status <> 'open';
+    select coalesce(sum(realized_partial_base - reserved_base), 0) into v_open from trades where bankroll_id = b.id and status = 'open';
+    assert b.balance = v_cap + v_bets - v_res + v_trades + v_open,
+      format('%s: balance %s ≠ capital %s + bet P/L %s − bet reservations %s + trade P/L %s + open trades %s', b.name, b.balance, v_cap, v_bets, v_res, v_trades, v_open);
+    assert (verify_bankroll(b.id)->>'consistent')::boolean, 'cache = ledger';
+  end loop;
+end $$;
+
+-- ── notifications: preferences, email outbox, duplicates ───────────────────
+do $$
+declare v_id uuid; n int; r record;
+begin
+  -- defaults: bet_settled is off everywhere → alert dropped; risk alerts in-app only
+  insert into alerts (user_id, type, title) values (auth.uid(), 'bet_settled', 'x');
+  assert not exists (select 1 from alerts where user_id = auth.uid() and type = 'bet_settled'), 'opted-out alert dropped';
+  insert into alerts (user_id, type, title, dedupe_key) values (auth.uid(), 'daily_loss', 'Daily loss', 'dl-1');
+  assert (select in_app from alerts where dedupe_key = 'dl-1'), 'in-app by default';
+  assert not exists (select 1 from email_outbox where user_id = auth.uid()), 'email is opt-in';
+  -- opt in
+  update user_settings set notification_email = 'alerts@test.local',
+    notification_prefs = '{"daily_loss":{"in_app":true,"email":true},"bet_settled":{"in_app":false,"email":true},"large_loss":{"in_app":true,"email":true}}'
+   where user_id = auth.uid();
+  insert into alerts (user_id, type, title, body, dedupe_key) values (auth.uid(), 'daily_loss', 'Daily loss limit exceeded', '−120 of −100', 'dl-2');
+  insert into alerts (user_id, type, title, dedupe_key) values (auth.uid(), 'daily_loss', 'dup', 'dl-2') on conflict do nothing;
+  assert (select count(*) from email_outbox where user_id = auth.uid() and alert_type = 'daily_loss') = 1, 'one email per alert (dedupe)';
+  select * into r from email_outbox where user_id = auth.uid() and alert_type = 'daily_loss';
+  assert r.status = 'queued' and r.to_email = 'alerts@test.local' and r.subject like '%Daily loss limit exceeded', 'queued to the configured address';
+  -- email-only preference: stored hidden from the in-app centre, email queued
+  insert into alerts (user_id, type, title, dedupe_key) values (auth.uid(), 'bet_settled', 'Bet settled', 'bs-1');
+  assert not (select in_app from alerts where dedupe_key = 'bs-1'), 'hidden in-app';
+  assert exists (select 1 from email_outbox where user_id = auth.uid() and alert_type = 'bet_settled'), 'email queued';
+  -- demo-workspace alerts never email
+  insert into alerts (user_id, is_demo, type, title, dedupe_key) values (auth.uid(), true, 'daily_loss', 'demo', 'dl-demo');
+  assert not exists (select 1 from email_outbox where dedupe_key = 'alert:dl-demo'), 'no email for demo';
+  -- test email + rate limit
+  v_id := queue_test_email();
+  assert (select kind from email_outbox where id = v_id) = 'test', 'test email queued';
+  perform queue_test_email(); perform queue_test_email(); perform queue_test_email(); perform queue_test_email();
+  begin perform queue_test_email(); raise exception 'expected limit'; exception when others then assert sqlerrm like '%limit%', sqlerrm; end;
+  -- clients cannot write the outbox
+  begin
+    update email_outbox set status = 'delivered' where user_id = auth.uid();
+    raise exception 'expected denial';
+  exception when insufficient_privilege then null; end;
+  -- worker claims each email once (skip locked + attempts)
+  set local role postgres;
+  select count(*) into n from claim_email_batch(100);
+  assert n >= 3, format('claimed %s', n);
+  assert (select count(*) from claim_email_batch(100)) = 0, 'nothing claimed twice';
+  assert (select bool_and(status = 'sending' and attempts = 1) from email_outbox where user_id = 'aaaaaaaa-0000-0000-0000-000000000001'), 'marked sending';
+  set local role authenticated;
+end $$;
+
 -- ── risk limit enforcement ─────────────────────────────────────────────────
 do $$
 declare br uuid;
@@ -339,6 +514,8 @@ begin
   assert (select count(*) from bankrolls) = 1, 'bob sees only his bankroll';
   assert (select count(*) from audit_logs) <= (select count(*) from audit_logs where user_id = auth.uid()), 'bob audit only own';
   assert (select count(*) from bookmakers where owner_id is not null) = 0, 'bob cannot see alice custom bookmaker';
+  assert (select count(*) from email_outbox) = 0 and (select count(*) from trades) = 0, 'bob sees no emails or trades';
+  assert (select count(*) from leagues where owner_id is not null) = 0, 'bob cannot see alice private league';
   set local role postgres;
   select id into alice_bet from bets where user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and status = 'pending' limit 1;
   select id into alice_br from bankrolls where user_id = 'aaaaaaaa-0000-0000-0000-000000000001' and name = 'Main';

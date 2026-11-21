@@ -25,14 +25,14 @@ export type Database = {
           Tables: {
             "alerts": {
                   Row: {
-                    "body": string | null,"created_at": string,"data": NonNullable<Json>,"dedupe_key": string | null,"emailed_at": string | null,"id": string,"is_demo": boolean,"read_at": string | null,"severity": Database["public"]['Enums']["alert_severity"],"title": string,"type": string,"user_id": string
+                    "body": string | null,"created_at": string,"data": NonNullable<Json>,"dedupe_key": string | null,"emailed_at": string | null,"id": string,"in_app": boolean,"is_demo": boolean,"read_at": string | null,"severity": Database["public"]['Enums']["alert_severity"],"title": string,"type": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "body"?: string | null,"created_at"?: string,"data"?: NonNullable<Json>,"dedupe_key"?: string | null,"emailed_at"?: string | null,"id"?: string,"is_demo"?: boolean,"read_at"?: string | null,"severity"?: Database["public"]['Enums']["alert_severity"],"title": string,"type": string,"user_id": string
+                    "body"?: string | null,"created_at"?: string,"data"?: NonNullable<Json>,"dedupe_key"?: string | null,"emailed_at"?: string | null,"id"?: string,"in_app"?: boolean,"is_demo"?: boolean,"read_at"?: string | null,"severity"?: Database["public"]['Enums']["alert_severity"],"title": string,"type": string,"user_id": string
                   }
                   Update: {
-                    "body"?: string | null,"created_at"?: string,"data"?: NonNullable<Json>,"dedupe_key"?: string | null,"emailed_at"?: string | null,"id"?: string,"is_demo"?: boolean,"read_at"?: string | null,"severity"?: Database["public"]['Enums']["alert_severity"],"title"?: string,"type"?: string,"user_id"?: string
+                    "body"?: string | null,"created_at"?: string,"data"?: NonNullable<Json>,"dedupe_key"?: string | null,"emailed_at"?: string | null,"id"?: string,"in_app"?: boolean,"is_demo"?: boolean,"read_at"?: string | null,"severity"?: Database["public"]['Enums']["alert_severity"],"title"?: string,"type"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -59,14 +59,14 @@ isOneToOne: true
                   ]
                 },"api_connections": {
                   Row: {
-                    "config": NonNullable<Json>,"created_at": string,"id": string,"is_enabled": boolean,"key_last4": string | null,"label": string,"last_error": string | null,"last_success_at": string | null,"last_tested_at": string | null,"provider_id": string,"quota_remaining": number | null,"quota_used": number | null,"status": string,"updated_at": string,"user_id": string
+                    "config": NonNullable<Json>,"created_at": string,"id": string,"is_enabled": boolean,"key_last4": string | null,"label": string,"last_error": string | null,"last_odds_at": string | null,"last_odds_events": number | null,"last_success_at": string | null,"last_test_result": Json | null,"last_tested_at": string | null,"provider_id": string,"quota_remaining": number | null,"quota_used": number | null,"status": string,"updated_at": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "config"?: NonNullable<Json>,"created_at"?: string,"id"?: string,"is_enabled"?: boolean,"key_last4"?: string | null,"label"?: string,"last_error"?: string | null,"last_success_at"?: string | null,"last_tested_at"?: string | null,"provider_id": string,"quota_remaining"?: number | null,"quota_used"?: number | null,"status"?: string,"updated_at"?: string,"user_id": string
+                    "config"?: NonNullable<Json>,"created_at"?: string,"id"?: string,"is_enabled"?: boolean,"key_last4"?: string | null,"label"?: string,"last_error"?: string | null,"last_odds_at"?: string | null,"last_odds_events"?: number | null,"last_success_at"?: string | null,"last_test_result"?: Json | null,"last_tested_at"?: string | null,"provider_id": string,"quota_remaining"?: number | null,"quota_used"?: number | null,"status"?: string,"updated_at"?: string,"user_id": string
                   }
                   Update: {
-                    "config"?: NonNullable<Json>,"created_at"?: string,"id"?: string,"is_enabled"?: boolean,"key_last4"?: string | null,"label"?: string,"last_error"?: string | null,"last_success_at"?: string | null,"last_tested_at"?: string | null,"provider_id"?: string,"quota_remaining"?: number | null,"quota_used"?: number | null,"status"?: string,"updated_at"?: string,"user_id"?: string
+                    "config"?: NonNullable<Json>,"created_at"?: string,"id"?: string,"is_enabled"?: boolean,"key_last4"?: string | null,"label"?: string,"last_error"?: string | null,"last_odds_at"?: string | null,"last_odds_events"?: number | null,"last_success_at"?: string | null,"last_test_result"?: Json | null,"last_tested_at"?: string | null,"provider_id"?: string,"quota_remaining"?: number | null,"quota_used"?: number | null,"status"?: string,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -310,6 +310,46 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"email_events": {
+                  Row: {
+                    "at": string,"detail": string | null,"http_status": number | null,"id": number,"outbox_id": string,"status": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "at"?: string,"detail"?: string | null,"http_status"?: number | null,"id"?: never,"outbox_id": string,"status": string,"user_id": string
+                  }
+                  Update: {
+                    "at"?: string,"detail"?: string | null,"http_status"?: number | null,"id"?: never,"outbox_id"?: string,"status"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "email_events_outbox_id_fkey"
+      columns: ["outbox_id"]
+isOneToOne: false
+      referencedRelation: "email_outbox"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"email_outbox": {
+                  Row: {
+                    "alert_id": string | null,"alert_type": string | null,"attempts": number,"body": string | null,"created_at": string,"dedupe_key": string,"delivered_at": string | null,"id": string,"kind": string,"last_error": string | null,"max_attempts": number,"next_attempt_at": string,"provider": string | null,"provider_message_id": string | null,"sent_at": string | null,"status": string,"subject": string,"to_email": string,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "alert_id"?: string | null,"alert_type"?: string | null,"attempts"?: number,"body"?: string | null,"created_at"?: string,"dedupe_key": string,"delivered_at"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"max_attempts"?: number,"next_attempt_at"?: string,"provider"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: string,"subject": string,"to_email": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "alert_id"?: string | null,"alert_type"?: string | null,"attempts"?: number,"body"?: string | null,"created_at"?: string,"dedupe_key"?: string,"delivered_at"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"max_attempts"?: number,"next_attempt_at"?: string,"provider"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: string,"subject"?: string,"to_email"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "email_outbox_alert_id_fkey"
+      columns: ["alert_id"]
+isOneToOne: false
+      referencedRelation: "alerts"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"events": {
                   Row: {
@@ -607,14 +647,14 @@ isOneToOne: false
                   ]
                 },"trades": {
                   Row: {
-                    "bankroll_id": string,"bookmaker_id": string | null,"closed_at": string | null,"commission": number,"created_at": string,"currency": string,"event_id": string | null,"event_name": string,"fx_rate": number,"id": string,"is_demo": boolean,"is_live": boolean,"market": string,"notes": string | null,"opened_at": string,"outcome": Database["public"]['Enums']["trade_outcome"] | null,"realized_pnl": number | null,"selection": string,"sport_id": string,"status": Database["public"]['Enums']["trade_status"],"strategy_id": string | null,"user_id": string
+                    "bankroll_id": string,"bookmaker_id": string | null,"closed_at": string | null,"commission": number,"created_at": string,"currency": string,"event_id": string | null,"event_name": string,"fx_rate": number,"id": string,"is_demo": boolean,"is_live": boolean,"league_id": string | null,"market": string,"notes": string | null,"opened_at": string,"outcome": Database["public"]['Enums']["trade_outcome"] | null,"realized_partial": number,"realized_partial_base": number,"realized_pnl": number | null,"reserved": number,"reserved_base": number,"selection": string,"sport_id": string,"status": Database["public"]['Enums']["trade_status"],"strategy_id": string | null,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "bankroll_id": string,"bookmaker_id"?: string | null,"closed_at"?: string | null,"commission"?: number,"created_at"?: string,"currency": string,"event_id"?: string | null,"event_name": string,"fx_rate"?: number,"id"?: string,"is_demo"?: boolean,"is_live"?: boolean,"market": string,"notes"?: string | null,"opened_at"?: string,"outcome"?: Database["public"]['Enums']["trade_outcome"] | null,"realized_pnl"?: number | null,"selection": string,"sport_id": string,"status"?: Database["public"]['Enums']["trade_status"],"strategy_id"?: string | null,"user_id": string
+                    "bankroll_id": string,"bookmaker_id"?: string | null,"closed_at"?: string | null,"commission"?: number,"created_at"?: string,"currency": string,"event_id"?: string | null,"event_name": string,"fx_rate"?: number,"id"?: string,"is_demo"?: boolean,"is_live"?: boolean,"league_id"?: string | null,"market": string,"notes"?: string | null,"opened_at"?: string,"outcome"?: Database["public"]['Enums']["trade_outcome"] | null,"realized_partial"?: number,"realized_partial_base"?: number,"realized_pnl"?: number | null,"reserved"?: number,"reserved_base"?: number,"selection": string,"sport_id": string,"status"?: Database["public"]['Enums']["trade_status"],"strategy_id"?: string | null,"user_id": string
                   }
                   Update: {
-                    "bankroll_id"?: string,"bookmaker_id"?: string | null,"closed_at"?: string | null,"commission"?: number,"created_at"?: string,"currency"?: string,"event_id"?: string | null,"event_name"?: string,"fx_rate"?: number,"id"?: string,"is_demo"?: boolean,"is_live"?: boolean,"market"?: string,"notes"?: string | null,"opened_at"?: string,"outcome"?: Database["public"]['Enums']["trade_outcome"] | null,"realized_pnl"?: number | null,"selection"?: string,"sport_id"?: string,"status"?: Database["public"]['Enums']["trade_status"],"strategy_id"?: string | null,"user_id"?: string
+                    "bankroll_id"?: string,"bookmaker_id"?: string | null,"closed_at"?: string | null,"commission"?: number,"created_at"?: string,"currency"?: string,"event_id"?: string | null,"event_name"?: string,"fx_rate"?: number,"id"?: string,"is_demo"?: boolean,"is_live"?: boolean,"league_id"?: string | null,"market"?: string,"notes"?: string | null,"opened_at"?: string,"outcome"?: Database["public"]['Enums']["trade_outcome"] | null,"realized_partial"?: number,"realized_partial_base"?: number,"realized_pnl"?: number | null,"reserved"?: number,"reserved_base"?: number,"selection"?: string,"sport_id"?: string,"status"?: Database["public"]['Enums']["trade_status"],"strategy_id"?: string | null,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -636,6 +676,12 @@ isOneToOne: false
       referencedRelation: "events"
       referencedColumns: ["id"]
     },{
+      foreignKeyName: "trades_league_id_fkey"
+      columns: ["league_id"]
+isOneToOne: false
+      referencedRelation: "leagues"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "trades_sport_id_fkey"
       columns: ["sport_id"]
 isOneToOne: false
@@ -651,14 +697,14 @@ isOneToOne: false
                   ]
                 },"user_settings": {
                   Row: {
-                    "alert_preferences": NonNullable<Json>,"clv_convention": Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker": string | null,"dashboard_widgets": NonNullable<Json>,"default_bankroll_id": string | null,"default_kelly_fraction": number,"display_currency": string,"mode": Database["public"]['Enums']["workspace_mode"],"odds_format": string,"theme": string,"timezone": string,"unit_size": number,"updated_at": string,"user_id": string
+                    "alert_preferences": NonNullable<Json>,"annualization_days": number,"clv_convention": Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker": string | null,"dashboard_widgets": NonNullable<Json>,"date_basis": string,"default_bankroll_id": string | null,"default_kelly_fraction": number,"display_currency": string,"mode": Database["public"]['Enums']["workspace_mode"],"notification_email": string | null,"notification_prefs": NonNullable<Json>,"odds_format": string,"risk_free_rate": number,"sortino_mar": number,"theme": string,"timezone": string,"unit_size": number,"updated_at": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "alert_preferences"?: NonNullable<Json>,"clv_convention"?: Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker"?: string | null,"dashboard_widgets"?: NonNullable<Json>,"default_bankroll_id"?: string | null,"default_kelly_fraction"?: number,"display_currency"?: string,"mode"?: Database["public"]['Enums']["workspace_mode"],"odds_format"?: string,"theme"?: string,"timezone"?: string,"unit_size"?: number,"updated_at"?: string,"user_id": string
+                    "alert_preferences"?: NonNullable<Json>,"annualization_days"?: number,"clv_convention"?: Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker"?: string | null,"dashboard_widgets"?: NonNullable<Json>,"date_basis"?: string,"default_bankroll_id"?: string | null,"default_kelly_fraction"?: number,"display_currency"?: string,"mode"?: Database["public"]['Enums']["workspace_mode"],"notification_email"?: string | null,"notification_prefs"?: NonNullable<Json>,"odds_format"?: string,"risk_free_rate"?: number,"sortino_mar"?: number,"theme"?: string,"timezone"?: string,"unit_size"?: number,"updated_at"?: string,"user_id": string
                   }
                   Update: {
-                    "alert_preferences"?: NonNullable<Json>,"clv_convention"?: Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker"?: string | null,"dashboard_widgets"?: NonNullable<Json>,"default_bankroll_id"?: string | null,"default_kelly_fraction"?: number,"display_currency"?: string,"mode"?: Database["public"]['Enums']["workspace_mode"],"odds_format"?: string,"theme"?: string,"timezone"?: string,"unit_size"?: number,"updated_at"?: string,"user_id"?: string
+                    "alert_preferences"?: NonNullable<Json>,"annualization_days"?: number,"clv_convention"?: Database["public"]['Enums']["clv_convention"],"clv_reference_bookmaker"?: string | null,"dashboard_widgets"?: NonNullable<Json>,"date_basis"?: string,"default_bankroll_id"?: string | null,"default_kelly_fraction"?: number,"display_currency"?: string,"mode"?: Database["public"]['Enums']["workspace_mode"],"notification_email"?: string | null,"notification_prefs"?: NonNullable<Json>,"odds_format"?: string,"risk_free_rate"?: number,"sortino_mar"?: number,"theme"?: string,"timezone"?: string,"unit_size"?: number,"updated_at"?: string,"user_id"?: string
                   }
                   Relationships: [
                     {
@@ -770,6 +816,35 @@ isOneToOne: false
 "capture_closing_odds_for":
 { Args: { "p_user": string }; Returns: number
                            },
+"claim_email_batch":
+{ Args: { "p_limit"?: number,"p_only"?: string }; Returns: {
+              "alert_id": string | null,
+"alert_type": string | null,
+"attempts": number,
+"body": string | null,
+"created_at": string,
+"dedupe_key": string,
+"delivered_at": string | null,
+"id": string,
+"kind": string,
+"last_error": string | null,
+"max_attempts": number,
+"next_attempt_at": string,
+"provider": string | null,
+"provider_message_id": string | null,
+"sent_at": string | null,
+"status": string,
+"subject": string,
+"to_email": string,
+"updated_at": string,
+"user_id": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "email_outbox"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
 "clear_demo_data":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -821,11 +896,16 @@ isOneToOne: false
 "id": string,
 "is_demo": boolean,
 "is_live": boolean,
+"league_id": string | null,
 "market": string,
 "notes": string | null,
 "opened_at": string,
 "outcome": Database["public"]['Enums']["trade_outcome"] | null,
+"realized_partial": number,
+"realized_partial_base": number,
 "realized_pnl": number | null,
+"reserved": number,
+"reserved_base": number,
 "selection": string,
 "sport_id": string,
 "status": Database["public"]['Enums']["trade_status"],
@@ -969,6 +1049,9 @@ isOneToOne: false
 "prune_odds_history":
 { Args: { "p_days"?: number }; Returns: number
                            },
+"queue_test_email":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
 "record_transaction":
 { Args: { "p_amount": number,"p_bankroll": string,"p_note"?: string,"p_occurred_at"?: string,"p_type": Database["public"]['Enums']["tx_type"] }; Returns: {
               "amount": number,
@@ -1065,6 +1148,70 @@ isOneToOne: false
 "reset_demo_data":
 { Args: { "p": Json }; Returns: Json
                            },
+"set_leg_results":
+{ Args: { "p_bet": string,"p_legs": Json }; Returns: {
+              "actual_payout": number | null,
+"away": string | null,
+"bankroll_id": string,
+"bookmaker_id": string | null,
+"cashed_out_stake": number,
+"cashout_amount": number,
+"client_ref": string | null,
+"closing_captured_at": string | null,
+"closing_odds": number | null,
+"closing_source": string | null,
+"commission": number,
+"confidence": number | null,
+"correlation_group": string | null,
+"created_at": string,
+"currency": string,
+"deleted_at": string | null,
+"est_probability": number | null,
+"event_id": string | null,
+"event_name": string,
+"event_start": string | null,
+"fx_rate": number,
+"home": string | null,
+"id": string,
+"import_hash": string | null,
+"is_demo": boolean,
+"is_live": boolean,
+"kind": Database["public"]['Enums']["bet_kind"],
+"league_id": string | null,
+"liability": number,
+"line": number | null,
+"market": string,
+"market_category": string | null,
+"market_id": string | null,
+"market_type_id": string | null,
+"notes": string | null,
+"odds": number,
+"opening_odds": number | null,
+"placed_at": string,
+"potential_payout": number,
+"profit": number | null,
+"ref": number,
+"selection": string,
+"settle_count": number,
+"settled_at": string | null,
+"settled_cashout_amount": number,
+"settled_cashout_stake": number,
+"side": Database["public"]['Enums']["bet_side"],
+"sport_id": string,
+"stake": number,
+"status": Database["public"]['Enums']["bet_status"],
+"strategy_id": string | null,
+"tags": (string)[],
+"units": number | null,
+"updated_at": string,
+"user_id": string
+            }
+                          SetofOptions: {
+        from: "*"
+        to: "bets"
+        isOneToOne: true
+        isSetofReturn: false
+      } },
 "set_workspace_mode":
 { Args: { "p_mode": Database["public"]['Enums']["workspace_mode"] }; Returns: Database["public"]['Enums']["workspace_mode"]
                            },
@@ -1146,11 +1293,16 @@ isOneToOne: false
 "id": string,
 "is_demo": boolean,
 "is_live": boolean,
+"league_id": string | null,
 "market": string,
 "notes": string | null,
 "opened_at": string,
 "outcome": Database["public"]['Enums']["trade_outcome"] | null,
+"realized_partial": number,
+"realized_partial_base": number,
 "realized_pnl": number | null,
+"reserved": number,
+"reserved_base": number,
 "selection": string,
 "sport_id": string,
 "status": Database["public"]['Enums']["trade_status"],
@@ -1235,7 +1387,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "alert_severity": "info"|"warning"|"critical","app_role": "user"|"admin","bet_kind": "single"|"accumulator","bet_side": "back"|"lay","bet_status": "pending"|"won"|"lost"|"void"|"half_won"|"half_lost"|"cashed_out","clv_convention": "odds"|"probability","event_status": "scheduled"|"live"|"finished"|"postponed"|"cancelled"|"suspended"|"unknown","execution_side": "back"|"lay"|"cashout","leg_status": "pending"|"won"|"lost"|"void"|"half_won"|"half_lost","trade_outcome": "win"|"lose"|"void","trade_status": "open"|"settled"|"void","tx_type": "deposit"|"withdrawal"|"bet_placement"|"bet_settlement"|"cashout"|"bet_reversal"|"transfer_in"|"transfer_out"|"adjustment"|"trade_settlement","workspace_mode": "live"|"demo"
+            "alert_severity": "info"|"warning"|"critical","app_role": "user"|"admin","bet_kind": "single"|"accumulator","bet_side": "back"|"lay","bet_status": "pending"|"won"|"lost"|"void"|"half_won"|"half_lost"|"cashed_out"|"partial_win"|"partial_loss"|"break_even","clv_convention": "odds"|"probability","event_status": "scheduled"|"live"|"finished"|"postponed"|"cancelled"|"suspended"|"unknown","execution_side": "back"|"lay"|"cashout","leg_status": "pending"|"won"|"lost"|"void"|"half_won"|"half_lost","trade_outcome": "win"|"lose"|"void","trade_status": "open"|"settled"|"void","tx_type": "deposit"|"withdrawal"|"bet_placement"|"bet_settlement"|"cashout"|"bet_reversal"|"transfer_in"|"transfer_out"|"adjustment"|"trade_settlement"|"trade_reservation"|"trade_cashout","workspace_mode": "live"|"demo"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -1355,7 +1507,7 @@ export const Constants = {
           }
         },"public": {
           Enums: {
-            "alert_severity": ["info", "warning", "critical"],"app_role": ["user", "admin"],"bet_kind": ["single", "accumulator"],"bet_side": ["back", "lay"],"bet_status": ["pending", "won", "lost", "void", "half_won", "half_lost", "cashed_out"],"clv_convention": ["odds", "probability"],"event_status": ["scheduled", "live", "finished", "postponed", "cancelled", "suspended", "unknown"],"execution_side": ["back", "lay", "cashout"],"leg_status": ["pending", "won", "lost", "void", "half_won", "half_lost"],"trade_outcome": ["win", "lose", "void"],"trade_status": ["open", "settled", "void"],"tx_type": ["deposit", "withdrawal", "bet_placement", "bet_settlement", "cashout", "bet_reversal", "transfer_in", "transfer_out", "adjustment", "trade_settlement"],"workspace_mode": ["live", "demo"]
+            "alert_severity": ["info", "warning", "critical"],"app_role": ["user", "admin"],"bet_kind": ["single", "accumulator"],"bet_side": ["back", "lay"],"bet_status": ["pending", "won", "lost", "void", "half_won", "half_lost", "cashed_out", "partial_win", "partial_loss", "break_even"],"clv_convention": ["odds", "probability"],"event_status": ["scheduled", "live", "finished", "postponed", "cancelled", "suspended", "unknown"],"execution_side": ["back", "lay", "cashout"],"leg_status": ["pending", "won", "lost", "void", "half_won", "half_lost"],"trade_outcome": ["win", "lose", "void"],"trade_status": ["open", "settled", "void"],"tx_type": ["deposit", "withdrawal", "bet_placement", "bet_settlement", "cashout", "bet_reversal", "transfer_in", "transfer_out", "adjustment", "trade_settlement", "trade_reservation", "trade_cashout"],"workspace_mode": ["live", "demo"]
           }
         }
 } as const

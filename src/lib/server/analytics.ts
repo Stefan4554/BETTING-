@@ -9,8 +9,9 @@ import { calibrate } from "@/lib/finance/calibration";
 import { riskState } from "@/lib/finance/risk";
 import { clv } from "@/lib/finance/clv";
 
-export function reservedByBankroll(rows: BetRow[]) {
+export function reservedByBankroll(rows: BetRow[], trades: { status: string; bankroll_id: string; reserved_base: number | string }[] = []) {
   const m = new Map<string, number>();
+  for (const t of trades) if (t.status === "open") m.set(t.bankroll_id, (m.get(t.bankroll_id) ?? 0) + Number(t.reserved_base));
   for (const b of rows) if (b.status === "pending") {
     m.set(b.bankroll_id, (m.get(b.bankroll_id) ?? 0) + Number(b.liability) * Number(b.fx_rate) - Number(b.cashout_amount) * Number(b.fx_rate));
   }
@@ -27,7 +28,7 @@ export async function loadAnalyticsBase(ctx: AppContext) {
     const br = ctx.bankrolls.find((b) => b.id === t.bankroll_id);
     capital += Number(t.amount) * (fx.rate(br?.currency ?? ctx.displayCurrency, ctx.displayCurrency, t.occurred_at.slice(0, 10)) ?? 0);
   }
-  const totals = bankrollTotals(ctx, fx, reservedByBankroll(rows));
+  const totals = bankrollTotals(ctx, fx, reservedByBankroll(rows, trades));
   const tradeExp = openTradeExposures(trades, fx, ctx);
   const tradePnl = trades.filter((t) => t.status !== "open").reduce((s, t) => s + Number(t.realized_pnl ?? 0) * Number(t.fx_rate), 0);
   return { rows, fx, trades, txs, conv, capital, totals, tradeExp, tradePnl };

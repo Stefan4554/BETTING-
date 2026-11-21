@@ -14,14 +14,17 @@ import {
   addExchangeRate, addLeague, addMarketType, addSport, clearDemo, deleteCatalogItem, deleteExchangeRate, resetDemo, setMode, updateProfile, updateSettings,
 } from "@/app/actions/settings";
 import { deleteConnection, listProviderSports, refreshConnection, saveConnection, testConnection } from "@/app/actions/connections";
+import { retryEmail, saveNotificationSettings, sendTestEmail } from "@/app/actions/notifications";
+import { defaultPref, NOTIFICATION_TYPES } from "@/lib/notifications";
 import { CURRENCIES, fmtAgo, fmtDate, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Caps = { encryption: boolean; serviceRole: boolean; email: boolean; platformOddsKey: boolean };
+type Caps = { encryption: boolean; serviceRole: boolean; email: boolean; emailWebhook: boolean; platformOddsKey: boolean };
 
-export function SettingsView({ tab, settings, profile, email, rates, providers, connections, logs, demoBets, serverCaps }: {
+export function SettingsView({ tab, settings, profile, email, rates, providers, connections, logs, demoBets, serverCaps, outbox, emailEvents }: {
   tab: string; settings: Tables<"user_settings">; profile: Tables<"profiles"> | null; email: string | null; rates: Tables<"exchange_rates">[];
   providers: Tables<"odds_providers">[]; connections: Tables<"api_connections">[]; logs: Tables<"api_request_logs">[]; demoBets: number; serverCaps: Caps;
+  outbox: Tables<"email_outbox">[]; emailEvents: Tables<"email_events">[];
 }) {
   const router = useRouter();
   const save = async (patch: Parameters<typeof updateSettings>[0], msg = "Saved") => {
@@ -33,11 +36,12 @@ export function SettingsView({ tab, settings, profile, email, rates, providers, 
       <PageHeader title="Settings" description={email ?? undefined} />
       <Tabs defaultValue={tab}>
         <TabsList>
-          {[["general", "General"], ["currencies", "Currencies & FX"], ["catalog", "Sports & markets"], ["data", "Data sources"], ["demo", "Demo workspace"], ["account", "Account & security"]].map(([k, l]) => <TabsTrigger key={k} value={k!}>{l}</TabsTrigger>)}
+          {[["general", "General"], ["currencies", "Currencies & FX"], ["catalog", "Sports & markets"], ["notifications", "Notifications"], ["data", "Data sources"], ["demo", "Demo workspace"], ["account", "Account & security"]].map(([k, l]) => <TabsTrigger key={k} value={k!}>{l}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="general"><General settings={settings} save={save} /></TabsContent>
         <TabsContent value="currencies"><Currencies settings={settings} rates={rates} save={save} /></TabsContent>
         <TabsContent value="catalog"><Catalog /></TabsContent>
+        <TabsContent value="notifications"><Notifications settings={settings} account={email} caps={serverCaps} outbox={outbox} events={emailEvents} /></TabsContent>
         <TabsContent value="data"><DataSources providers={providers} connections={connections} logs={logs} caps={serverCaps} /></TabsContent>
         <TabsContent value="demo"><Demo demoBets={demoBets} /></TabsContent>
         <TabsContent value="account"><Account profile={profile} email={email} caps={serverCaps} /></TabsContent>
@@ -81,7 +85,7 @@ function General({ settings, save }: { settings: Tables<"user_settings">; save: 
       <Panel title="Notifications" bodyClassName="grid grid-cols-2 content-start gap-2 p-3">
         <Label>Large profit/loss alert ≥<Input inputMode="decimal" value={f.large_result} onChange={set("large_result")} /></Label>
         <Label>Odds movement alert ≥ %<Input inputMode="decimal" value={f.odds_move_pct} onChange={set("odds_move_pct")} /></Label>
-        <label className="col-span-2 flex items-center gap-1.5 text-xs"><Checkbox checked={f.email} onChange={(e) => setF({ ...f, email: e.target.checked })} /> Also email critical alerts (requires the server email integration)</label>
+        <p className="col-span-2 text-[11px] text-dim">Which alerts appear in-app and which are emailed is configured per type under Settings → Notifications.</p>
         <p className="col-span-2 text-[11px] text-dim">Risk thresholds (daily loss, drawdown, exposure) are configured under Risk Management.</p>
       </Panel>
       <div className="lg:col-span-2"><Button onClick={submit}>Save settings</Button></div>
@@ -215,7 +219,7 @@ function ProviderCard({ p, conns }: { p: Tables<"odds_providers">; conns: Tables
       {p.docs_url && <a href={p.docs_url} target="_blank" rel="noreferrer" className="text-[11px] text-accent">Provider documentation ↗</a>}
       {!p.implemented ? <Notice>No adapter in this release. The provider abstraction (src/lib/providers) is ready for one.</Notice> : (
         <>
-          {c && <div className="text-[11px] text-muted">Key •••• {c.key_last4} · tested {fmtAgo(c.last_tested_at)} · last success {fmtAgo(c.last_success_at)}{c.quota_remaining != null ? ` · ${c.quota_remaining} requests/credits left` : ""}{c.last_error ? <span className="block text-down">{c.last_error}</span> : null}</div>}
+          {c && <ConnectionStatus c={c} />}
           <Label>{c ? "Replace API key" : "API key"}<Input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder={c ? "leave empty to keep" : "paste key"} /></Label>
           {p.id === "the_odds_api" && <div className="grid grid-cols-2 gap-1.5"><Label>Regions<Input value={f.regions} onChange={(e) => setF({ ...f, regions: e.target.value })} /></Label><Label>Markets<Input value={f.markets} onChange={(e) => setF({ ...f, markets: e.target.value })} /></Label></div>}
           {p.id === "api_football" && <Label>Season<Input value={f.season} onChange={(e) => setF({ ...f, season: e.target.value })} placeholder="e.g. 2026" /></Label>}
@@ -230,7 +234,8 @@ function ProviderCard({ p, conns }: { p: Tables<"odds_providers">; conns: Tables
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" onClick={submit} disabled={busy || (!c && !key)}>{c ? "Save" : "Connect"}</Button>
             {c && <>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => go(() => testConnection(c.id), (d) => `${d.ok ? "OK" : "Failed"}: ${d.message}`)}><PlugZap className="h-3 w-3" /> Test</Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => go(() => testConnection(c.id), (d) => `${d.ok ? "Verified" : d.reachedProvider ? "Failed" : "Not verified"}: ${d.message}`)}><PlugZap className="h-3 w-3" /> Test connection</Button>
+              <Button size="sm" variant="outline" disabled={busy || !f.sports.trim()} title="Also fetches and parses one real odds payload for the first sport (uses provider credits)" onClick={() => go(() => testConnection(c.id, true), (d) => `${d.ok ? "Verified" : "Failed"}: ${d.message}`)}>Test + odds sample</Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={async () => { const r = await listProviderSports(c.id); if (!r.ok) toast.error(r.error); else setAvailable(r.data); }}>Browse sports</Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => go(() => refreshConnection(c.id), (d) => `${d.events} events, ${d.snapshots} snapshots${d.errors.length ? `, ${d.errors.length} errors` : ""}`)}><RefreshCw className="h-3 w-3" /> Fetch now</Button>
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => { if (confirm("Delete this connection and its stored key?")) void go(() => deleteConnection(c.id), () => "Connection deleted"); }}><Trash2 className="h-3 w-3" /></Button>
@@ -283,6 +288,94 @@ function Account({ profile, email, caps }: { profile: Tables<"profiles"> | null;
         <div className="mt-3 flex gap-2">
           <a href="/api/export/backup"><Button size="sm" variant="outline">Download JSON backup</Button></a>
           <form action="/auth/signout" method="post"><Button size="sm" variant="ghost">Sign out</Button></form>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+const STATUS_TONE: Record<string, "up" | "down" | "warn" | "neutral"> = { ok: "up", untested: "neutral", rate_limited: "warn", unreachable: "warn", outage: "down", auth_error: "down", invalid_response: "down", error: "down" };
+const STATUS_TEXT: Record<string, string> = {
+  ok: "Verified", untested: "Not tested", rate_limited: "Rate limited / quota exhausted", unreachable: "Not verified — provider unreachable from server",
+  outage: "Provider outage", auth_error: "Invalid / unauthorised API key", invalid_response: "Malformed provider response", error: "Error",
+};
+
+function ConnectionStatus({ c }: { c: Tables<"api_connections"> }) {
+  const t = c.last_test_result as null | { ok: boolean; message: string; latencyMs?: number; checks: { name: string; ok: boolean; detail: string }[]; testedAt: string };
+  return (
+    <div className="flex flex-col gap-1 rounded-[3px] border border-line bg-panel-2 p-2 text-[11px]">
+      <div className="flex items-center gap-1.5"><Badge tone={STATUS_TONE[c.status] ?? "neutral"}>{c.status}</Badge><span>{STATUS_TEXT[c.status] ?? c.status}</span></div>
+      <KV k="API key" v={`•••• ${c.key_last4 ?? "????"}`} />
+      <KV k="Last test" v={c.last_tested_at ? `${fmtAgo(c.last_tested_at)}${t?.latencyMs != null ? ` · ${t.latencyMs} ms` : ""}` : "never"} />
+      <KV k="Last successful request" v={c.last_success_at ? fmtDateTime(c.last_success_at) : "never"} />
+      <KV k="Last odds update" v={c.last_odds_at ? `${fmtDateTime(c.last_odds_at)} · ${c.last_odds_events ?? "?"} events` : "never"} />
+      <KV k="Remaining quota" v={c.quota_remaining != null ? `${c.quota_remaining}${c.quota_used != null ? ` (used ${c.quota_used})` : ""}` : "not reported"} />
+      {c.last_error && <div className="text-down">Last error: {c.last_error}</div>}
+      {t?.checks?.length ? <ul className="mt-1">{t.checks.map((ch, i) => <li key={i} className={ch.ok ? "text-up" : "text-down"}>{ch.ok ? "✓" : "✗"} {ch.name}: <span className="text-muted">{ch.detail}</span></li>)}</ul> : null}
+    </div>
+  );
+}
+
+const EMAIL_TONE: Record<string, "up" | "down" | "warn" | "neutral" | "accent"> = { queued: "neutral", sending: "accent", sent: "accent", delivered: "up", failed: "down", bounced: "down" };
+
+function Notifications({ settings, account, caps, outbox, events }: { settings: Tables<"user_settings">; account: string | null; caps: Caps; outbox: Tables<"email_outbox">[]; events: Tables<"email_events">[] }) {
+  const router = useRouter();
+  const stored = (settings.notification_prefs ?? {}) as Record<string, { in_app: boolean; email: boolean }>;
+  const [addr, setAddr] = React.useState(settings.notification_email ?? "");
+  const [prefs, setPrefs] = React.useState(() => Object.fromEntries(NOTIFICATION_TYPES.map(([k]) => [k, { ...defaultPref(k), ...(stored[k] ?? {}) }])));
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState<string | null>(null);
+  const save = async () => {
+    const r = await saveNotificationSettings({ notification_email: addr || null, prefs });
+    if (!r.ok) toast.error(r.error); else { toast.success("Notification preferences saved"); router.refresh(); }
+  };
+  const test = async () => {
+    setBusy(true);
+    const r = await sendTestEmail();
+    setBusy(false);
+    if (!r.ok) return toast.error(r.error);
+    if (r.data.status === "sent") toast.success(`Test email accepted by the provider for ${r.data.to_email} (id ${r.data.provider_message_id}). Delivery is confirmed by the provider webhook.`);
+    else toast.error(`Test email ${r.data.status}: ${r.data.last_error ?? "unknown error"}`);
+    router.refresh();
+  };
+  const set = (k: string, ch: "in_app" | "email", v: boolean) => setPrefs((p) => ({ ...p, [k]: { ...p[k]!, [ch]: v } }));
+  return (
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+      <Panel title="Email delivery" bodyClassName="flex flex-col gap-2 p-3 text-xs">
+        <KV k="Provider" v="Resend (server-side)" />
+        <KV k="Server configuration" v={caps.email ? <Badge tone="up">configured</Badge> : <Badge tone="down">not configured</Badge>} />
+        <KV k="Delivery confirmations (webhook)" v={caps.emailWebhook ? <Badge tone="up">configured</Badge> : <Badge tone="warn">not configured</Badge>} />
+        {!caps.email && <Notice level="warn">The administrator must set RESEND_API_KEY and ALERTS_FROM_EMAIL (a sender on a domain verified in Resend). Until then emails stay queued and test emails fail with that reason.</Notice>}
+        <Label>Send notifications to<Input type="email" value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={account ?? "you@example.com"} /></Label>
+        <p className="text-[11px] text-dim">Empty = your account email ({account ?? "—"}).</p>
+        <div className="flex gap-2"><Button size="sm" onClick={save}>Save</Button><Button size="sm" variant="outline" onClick={test} disabled={busy}>{busy ? "Sending…" : "Send test email"}</Button></div>
+        <p className="text-[11px] text-dim">Statuses: <b>queued</b> (waiting / retry scheduled) → <b>sent</b> (accepted by the provider) → <b>delivered</b> (confirmed by the provider webhook), or <b>failed</b> / <b>bounced</b>. Transient failures retry after 1, 5, 15 and 60 minutes; duplicates are prevented per alert. Demo-workspace alerts never email.</p>
+      </Panel>
+      <Panel title="Notification preferences" subtitle="per alert type" className="xl:col-span-2">
+        <table className="w-full text-xs">
+          <thead className="bg-panel-2"><tr><th className="label-xs h-7 px-2 text-left">Alert</th><th className="label-xs px-2">In-app</th><th className="label-xs px-2">Email</th></tr></thead>
+          <tbody>{NOTIFICATION_TYPES.map(([k, label]) => (
+            <tr key={k} className="border-b border-line/60"><td className="h-7 px-2">{label}</td>
+              <td className="px-2 text-center"><Checkbox aria-label={`${label} in-app`} checked={prefs[k]!.in_app} onChange={(e) => set(k, "in_app", e.target.checked)} /></td>
+              <td className="px-2 text-center"><Checkbox aria-label={`${label} email`} checked={prefs[k]!.email} onChange={(e) => set(k, "email", e.target.checked)} /></td></tr>
+          ))}</tbody>
+        </table>
+        <div className="p-2"><Button size="sm" onClick={save}>Save preferences</Button></div>
+      </Panel>
+      <Panel title="Email delivery log" subtitle="latest 50" className="xl:col-span-3">
+        <div className="max-h-96 overflow-auto">
+          <table className="w-full text-xs"><thead className="sticky top-0 bg-panel-2"><tr>{["Queued", "Type", "To", "Subject", "Status", "Attempts", "Last error", ""].map((h) => <th key={h} className="label-xs h-7 px-2 text-left">{h}</th>)}</tr></thead>
+            <tbody>{outbox.map((o) => (
+              <React.Fragment key={o.id}>
+                <tr className="cursor-pointer border-b border-line/60" onClick={() => setOpen(open === o.id ? null : o.id)}>
+                  <td className="num h-7 px-2 text-muted">{fmtDateTime(o.created_at)}</td><td className="px-2">{o.kind === "test" ? "test" : o.alert_type}</td><td className="px-2">{o.to_email}</td>
+                  <td className="max-w-[260px] truncate px-2">{o.subject}</td><td className="px-2"><Badge tone={EMAIL_TONE[o.status] ?? "neutral"}>{o.status}</Badge></td>
+                  <td className="num px-2">{o.attempts}/{o.max_attempts}</td><td className="max-w-[260px] truncate px-2 text-down">{o.last_error}</td>
+                  <td className="px-2">{o.status === "failed" && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); const r = await retryEmail(o.id); if (!r.ok) toast.error(r.error); router.refresh(); }}>Retry</Button>}</td>
+                </tr>
+                {open === o.id && <tr><td colSpan={8} className="bg-panel-2 px-4 py-1 text-[11px]">{events.filter((ev) => ev.outbox_id === o.id).map((ev) => <div key={ev.id} className="num">{fmtDateTime(ev.at)} · {ev.status}{ev.http_status ? ` · HTTP ${ev.http_status}` : ""} · <span className="text-muted">{ev.detail}</span></div>)}{!events.some((ev) => ev.outbox_id === o.id) && <span className="text-dim">no attempts yet</span>}</td></tr>}
+              </React.Fragment>
+            ))}{!outbox.length && <tr><td colSpan={8} className="py-6 text-center text-dim">No emails yet</td></tr>}</tbody></table>
         </div>
       </Panel>
     </div>

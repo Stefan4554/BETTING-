@@ -6,8 +6,8 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/menu";
-import { partialCashout, settleBet } from "@/app/actions/bets";
-import { asianHandicapResult, betProfit, settleAccumulator, totalsResult, type BetStatus, type LegStatus } from "@/lib/finance/settlement";
+import { partialCashout, setLegResults, settleBet } from "@/app/actions/bets";
+import { accumulatorComponents, asianHandicapResult, betProfit, settleAccumulator, totalsResult, type BetStatus, type LegStatus } from "@/lib/finance/settlement";
 import { fmtMoney, STATUS_LABEL } from "@/lib/format";
 import type { BetView } from "./tracker";
 import { cn } from "@/lib/utils";
@@ -57,8 +57,15 @@ export function SettleDialog({ bet, onClose }: { bet: BetView; onClose: () => vo
   const done = (msg: string) => { toast.success(msg); router.refresh(); onClose(); };
   const settle = async () => {
     setBusy(true);
+    if (isAcca) {
+      const r = await setLegResults(bet.id, legs.map((st, i) => ({ leg_no: bet.legs[i]!.leg_no, status: st })));
+      setBusy(false);
+      if (!r.ok) return toast.error(r.error);
+      if (r.data.status === "pending") { toast.success("Leg results saved; accumulator still open"); router.refresh(); return onClose(); }
+      return done(`Settled ${STATUS_LABEL[r.data.status]} · P/L ${fmtMoney(r.data.profit == null ? null : Number(r.data.profit), bet.currency, true)}`);
+    }
     const r = await settleBet({
-      bet_id: bet.id, status: isAcca ? undefined : (status as Exclude<BetStatus, "pending">), closing_odds: closing ? Number(closing) : undefined,
+      bet_id: bet.id, status: isAcca ? undefined : (status as "won" | "lost" | "void" | "half_won" | "half_lost"), closing_odds: closing ? Number(closing) : undefined,
       legs: isAcca ? legs.map((s, i) => ({ leg_no: bet.legs[i]!.leg_no, status: s })) : undefined,
     });
     setBusy(false);
@@ -83,6 +90,7 @@ export function SettleDialog({ bet, onClose }: { bet: BetView; onClose: () => vo
           <TabsContent value="result" className="flex flex-col gap-3">
             {isAcca ? (
               <div className="flex flex-col gap-1">
+                <p className="text-[11px] text-muted">Leg results can be saved one at a time. The accumulator settles automatically when a leg loses or every leg is decided; its result follows the actual payout.</p>
                 {bet.legs.map((l, i) => (
                   <div key={l.leg_no} className="flex items-center gap-2 text-xs">
                     <span className="flex-1 truncate">{l.event_name} — {l.selection} @ {l.odds}</span>
@@ -108,10 +116,11 @@ export function SettleDialog({ bet, onClose }: { bet: BetView; onClose: () => vo
                 )}
               </>
             )}
-            <Label>Closing odds (optional, for CLV)<Input inputMode="decimal" value={closing} onChange={(e) => setClosing(e.target.value)} className="w-32" /></Label>
+            {isAcca && preview && legs.every((x) => x !== "pending") && <AccaBreakdown stake={bet.stake - bet.cashed_out_stake} legs={bet.legs.map((l, i) => ({ odds: l.odds, status: legs[i]! }))} currency={bet.currency} />}
+            {!isAcca && <Label>Closing odds (optional, for CLV)<Input inputMode="decimal" value={closing} onChange={(e) => setClosing(e.target.value)} className="w-32" /></Label>}
             <div className="flex items-center justify-between border-t border-line pt-3">
-              <span className="text-xs text-muted">Preview: {preview ? <><b>{STATUS_LABEL[preview.status]}</b> · P/L <span className={cn("num", preview.profit >= 0 ? "text-up" : "text-down")}>{fmtMoney(preview.profit, bet.currency, true)}</span></> : "set all legs"}</span>
-              <Button onClick={settle} disabled={busy || !preview && !isAcca}>Confirm settlement</Button>
+              <span className="text-xs text-muted">Preview: {preview ? <><b>{STATUS_LABEL[preview.status]}</b> · P/L <span className={cn("num", preview.profit >= 0 ? "text-up" : "text-down")}>{fmtMoney(preview.profit, bet.currency, true)}</span></> : "legs still open"}</span>
+              <Button onClick={settle} disabled={busy || (!preview && !isAcca)}>{isAcca && !preview ? "Save leg results" : "Confirm settlement"}</Button>
             </div>
           </TabsContent>
           <TabsContent value="cashout" className="flex flex-col gap-3">
@@ -128,5 +137,19 @@ export function SettleDialog({ bet, onClose }: { bet: BetView; onClose: () => vo
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AccaBreakdown({ stake, legs, currency }: { stake: number; legs: { odds: number; status: LegStatus }[]; currency: string }) {
+  const comps = accumulatorComponents(stake, legs);
+  const total = comps.reduce((a, c) => a + c.payout.toNumber(), 0);
+  return (
+    <div className="rounded-[3px] border border-line p-2 text-[11px]">
+      <div className="label-xs mb-1">Settlement components (half results split the stake)</div>
+      {comps.map((c, i) => (
+        <div key={i} className="num flex justify-between"><span className="text-muted">{c.path.join(" × ")}</span><span>{fmtMoney(c.stake.toNumber(), currency)} @ {c.odds.toFixed(3)} → {fmtMoney(c.payout.toNumber(), currency)}</span></div>
+      ))}
+      <div className="num mt-1 flex justify-between border-t border-line pt-1"><span>Total payout vs stake {fmtMoney(stake, currency)}</span><b>{fmtMoney(total, currency)} ({fmtMoney(total - stake, currency, true)})</b></div>
+    </div>
   );
 }

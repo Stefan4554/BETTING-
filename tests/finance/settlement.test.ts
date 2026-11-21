@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  accumulatorComponents, type BetStatus, type LegResult, type LegStatus,
   accumulatorOdds, asianHandicapResult, betProfit, legFactor, liability, potentialPayout,
   settleAccumulator, settlementCredit, totalsResult, SettlementError,
 } from "@/lib/finance/settlement";
@@ -62,9 +63,9 @@ describe("settlement credit (amount returned to bankroll)", () => {
 
 describe("accumulators", () => {
   it("odds are the product of legs", () => expect(accumulatorOdds([2, 1.5, 3]).toNumber()).toBe(9));
-  it("won × void × half_won", () => {
+  it("won × void × half_won → partial win", () => {
     const r = settleAccumulator([{ odds: 2, status: "won" }, { odds: 1.5, status: "void" }, { odds: 3, status: "half_won" }]);
-    expect(r.status).toBe("won");
+    expect(r.status).toBe("partial_win");
     expect(r.factor!.toNumber()).toBe(4);
     expect(p({ side: "back", odds: 9, stake: 10, status: "won", factor: r.factor! })).toBe(30);
   });
@@ -73,10 +74,11 @@ describe("accumulators", () => {
   });
   it("pending legs keep it open", () => expect(settleAccumulator([{ odds: 2, status: "won" }, { odds: 2, status: "pending" }]).status).toBe("pending"));
   it("all void → void", () => expect(settleAccumulator([{ odds: 2, status: "void" }, { odds: 3, status: "void" }]).status).toBe("void"));
-  it("half lost leg halves the return", () => {
+  it("half lost leg halves the return → break-even when payout = stake", () => {
     const r = settleAccumulator([{ odds: 2, status: "won" }, { odds: 1.9, status: "half_lost" }]);
     expect(r.factor!.toNumber()).toBe(1);
-    expect(p({ side: "back", odds: 3.8, stake: 10, status: "won", factor: r.factor! })).toBe(0);
+    expect(r.status).toBe("break_even");
+    expect(p({ side: "back", odds: 3.8, stake: 10, status: r.status, factor: r.factor! })).toBe(0);
   });
   it("needs two legs", () => expect(() => settleAccumulator([{ odds: 2, status: "won" }])).toThrow());
 });
@@ -105,4 +107,39 @@ describe("quarter-line totals", () => {
     ["over", 2.5, 3, "won"], ["over", 2.5, 2, "lost"], ["over", 2, 2, "void"],
     ["over", 2.25, 2, "half_lost"], ["over", 2.75, 3, "half_won"], ["under", 2.25, 2, "half_won"], ["under", 2.75, 3, "half_lost"],
   ] as const)("%s %s with %s → %s", (side, line, total, r) => expect(totalsResult(side, line, total)).toBe(r));
+});
+
+describe("accumulator result from the actual payout", () => {
+  const S = (legs: [number, LegStatus][]) => settleAccumulator(legs.map(([odds, status]) => ({ odds, status })));
+  it.each([
+    ["all winning", [[2, "won"], [1.5, "won"], [1.8, "won"]], "won", 44],
+    ["one losing leg", [[2, "won"], [1.5, "lost"], [1.8, "won"]], "lost", -10],
+    ["one void leg", [[2, "won"], [1.5, "void"]], "won", 10],
+    ["multiple void legs", [[2, "void"], [1.5, "void"], [3, "won"]], "won", 20],
+    ["all void", [[2, "void"], [1.5, "void"]], "void", 0],
+    ["half-won leg", [[2, "won"], [1.9, "half_won"]], "partial_win", 19],
+    ["half-lost leg, payout below stake", [[1.5, "won"], [1.9, "half_lost"]], "partial_loss", -2.5],
+    ["half-lost leg, payout above stake", [[3, "won"], [1.9, "half_lost"]], "partial_win", 5],
+    ["half-lost leg, payout = stake", [[2, "won"], [1.9, "half_lost"]], "break_even", 0],
+    ["multiple Asian-handicap legs", [[1.9, "half_won"], [1.95, "half_won"], [2, "won"]], "partial_win", 32.78],
+    ["two half-lost legs", [[1.9, "half_lost"], [1.95, "half_lost"]], "partial_loss", -7.5],
+    ["half-won and half-lost", [[1.9, "half_won"], [2.1, "half_lost"]], "partial_loss", -2.75],
+  ] as [string, [number, LegStatus][], string, number][])("%s → %s", (_n, legs, status, profit) => {
+    const r = S(legs);
+    expect(r.status).toBe(status);
+    const odds = legs.reduce((a, [o]) => a * o, 1);
+    expect(p({ side: "back", odds, stake: 10, status: r.status as BetStatus, factor: r.factor ?? 0 })).toBe(profit);
+  });
+  it("split-stake components multiply out to stake × Π factors", () => {
+    const legs: LegResult[] = [{ odds: 1.9, status: "half_won" }, { odds: 1.95, status: "half_lost" }, { odds: 2.2, status: "won" }, { odds: 1.5, status: "void" }];
+    const comps = accumulatorComponents(10, legs);
+    expect(comps).toHaveLength(4); // 2 half legs → 2 × 2 paths
+    expect(comps.reduce((a, c) => a + c.stake.toNumber(), 0)).toBe(10);
+    const total = comps.reduce((a, c) => a.plus(c.payout), comps[0]!.payout.minus(comps[0]!.payout));
+    expect(total.toNumber()).toBeCloseTo(10 * 1.45 * 0.5 * 2.2 * 1, 10);
+    expect(comps.find((c) => c.path.join() === "L1:won½,L2:void½,L3:won,L4:void")!.payout.toNumber()).toBeCloseTo(2.5 * 1.9 * 2.2, 10);
+  });
+  it("rejects partial statuses on singles without a factor", () => {
+    expect(() => betProfit({ side: "back", odds: 2, stake: 10, status: "partial_win" })).toThrow();
+  });
 });

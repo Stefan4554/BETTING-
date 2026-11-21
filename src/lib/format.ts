@@ -46,9 +46,11 @@ export function fmtAgo(iso: string | null | undefined, now = Date.now()): string
 }
 export const STATUS_LABEL: Record<string, string> = {
   pending: "Pending", won: "Won", lost: "Lost", void: "Void", half_won: "Half won", half_lost: "Half lost", cashed_out: "Cashed out",
+  partial_win: "Partial win", partial_loss: "Partial loss", break_even: "Break-even",
 };
 export const TX_LABEL: Record<string, string> = {
   deposit: "Deposit", withdrawal: "Withdrawal", bet_placement: "Bet placed", bet_settlement: "Bet settled", cashout: "Cash-out",
-  bet_reversal: "Reversal", transfer_in: "Transfer in", transfer_out: "Transfer out", adjustment: "Adjustment", trade_settlement: "Trade settled",
+  bet_reversal: "Reversal", transfer_in: "Transfer in", transfer_out: "Transfer out", adjustment: "Adjustment", trade_settlement: "Trade closed",
+  trade_reservation: "Trade reservation", trade_cashout: "Trade partial close",
 };
 export const CURRENCIES = ["EUR", "USD", "GBP", "CHF", "AUD", "CAD", "SEK", "NOK", "DKK", "PLN", "CZK", "JPY", "BRL", "INR", "NZD", "ZAR"];

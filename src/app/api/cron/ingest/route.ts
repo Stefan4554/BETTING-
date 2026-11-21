@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { cronAuthorized } from "@/lib/server/cron";
-import { connectionConfig, ingest, loadConnectionKey } from "@/lib/server/ingest";
+import { connectionConfig, ingest, loadConnectionKey, recordIngestOutcome } from "@/lib/server/ingest";
 import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -30,10 +30,8 @@ export async function GET(req: NextRequest) {
     const due = !c.last_success_at || Date.now() - Date.parse(c.last_success_at) >= Math.max(cfg.refreshSeconds, prov.min_refresh_seconds) * 1000;
     if (!due) continue;
     const r = await ingest(admin, { providerId: c.provider_id, config: cfg, ownerId: c.user_id, connectionId: c.id });
-    const failed = r.errors.length > 0 && r.events === 0;
-    await admin.from("api_connections").update({ status: failed ? "error" : "ok", last_error: r.errors[0] ?? null, ...(failed ? {} : { last_success_at: new Date().toISOString() }),
-      quota_used: r.quota?.used ?? c.quota_used, quota_remaining: r.quota?.remaining ?? c.quota_remaining }).eq("id", c.id);
-    if (failed) await admin.from("alerts").upsert({ user_id: c.user_id, is_demo: false, type: "api_failure", severity: "warning", title: "Scheduled odds ingestion failed",
+    const failed = await recordIngestOutcome(admin, c, r);
+    if (failed) await admin.from("alerts").upsert({ user_id: c.user_id, is_demo: false, type: "api_failure", severity: "warning", title: `Scheduled odds ingestion failed (${r.errorStatus ?? "error"})`,
       body: r.errors.slice(0, 2).join(" · "), dedupe_key: `api_failure:${c.id}:${new Date().toISOString().slice(0, 13)}` }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
     results.push({ connection: c.id, ...r });
   }

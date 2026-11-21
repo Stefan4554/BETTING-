@@ -51,8 +51,11 @@ export interface BetRecord {
 export const MIN_SAMPLE = 30;
 
 const isSettled = (b: BetRecord) => b.status !== "pending";
-const isWin = (b: BetRecord) => b.status === "won" || b.status === "half_won" || (b.status === "cashed_out" && (b.profit ?? 0) > 0);
-const isLoss = (b: BetRecord) => b.status === "lost" || b.status === "half_lost" || (b.status === "cashed_out" && (b.profit ?? 0) < 0);
+// Wins/losses follow the money: partial wins/losses and cash-outs count by the sign of P/L;
+// void and break-even results are neither.
+const isWin = (b: BetRecord) => b.status === "won" || b.status === "half_won" || ((b.status === "cashed_out" || b.status === "partial_win") && (b.profit ?? 0) > 0);
+const isLoss = (b: BetRecord) => b.status === "lost" || b.status === "half_lost" || ((b.status === "cashed_out" || b.status === "partial_loss") && (b.profit ?? 0) < 0);
+const isNeutral = (b: BetRecord) => b.status === "void" || b.status === "break_even";
 const settleTime = (b: BetRecord) => Date.parse(b.settledAt ?? b.placedAt);
 
 export function bySettlement(bets: BetRecord[]): BetRecord[] {
@@ -165,6 +168,7 @@ export function summarize(bets: BetRecord[], opts: { convention?: ClvConvention;
   const settled = bySettlement(bets);
   const pending = bets.filter((b) => b.status === "pending");
   const nonVoid = settled.filter((b) => b.status !== "void");
+  const decided = settled.filter((b) => !isNeutral(b));
   const wins = settled.filter(isWin);
   const losses = settled.filter(isLoss);
 
@@ -221,7 +225,7 @@ export function summarize(bets: BetRecord[], opts: { convention?: ClvConvention;
     grossLoss: fromCents(grossLossC),
     roi: stakeC > 0 ? profitC / stakeC : null,
     yield: stakeC > 0 ? profitC / stakeC : null,
-    winRate: nonVoid.length ? wins.length / nonVoid.length : null,
+    winRate: decided.length ? wins.length / decided.length : null,
     profitFactor: grossLossC < 0 && grossWinC > 0 ? grossWinC / -grossLossC : grossLossC < 0 ? 0 : null,
     averageOdds: mean(nonVoid.map((b) => b.odds)),
     averageStake: settled.length ? totalStake / settled.length : null,
@@ -331,7 +335,7 @@ export function pnlByPeriod(bets: BetRecord[], g: Granularity): PeriodRow[] {
     const k = periodKey(b.settledAt ?? b.placedAt, g);
     const r = m.get(k) ?? { bets: 0, stakeC: 0, profitC: 0, wins: 0, decided: 0 };
     r.bets++; r.stakeC += cents(b.stake); r.profitC += cents(b.profit ?? 0);
-    if (b.status !== "void") r.decided++;
+    if (!isNeutral(b)) r.decided++;
     if (isWin(b)) r.wins++;
     m.set(k, r);
   }
@@ -349,7 +353,7 @@ export function cumulativeCurve(bets: BetRecord[], opts: { convention?: ClvConve
   let p = 0, s = 0, w = 0, n = 0, clvSum = 0, clvN = 0;
   return bySettlement(bets).map((b) => {
     p += cents(b.profit ?? 0); s += cents(b.stake);
-    if (b.status !== "void") { n++; if (isWin(b)) w++; }
+    if (!isNeutral(b)) { n++; if (isWin(b)) w++; }
     const c = b.kind === "single" ? clvFn(b.odds, b.closingOdds, conv, b.side) : null;
     if (c != null) { clvSum += c; clvN++; }
     return {

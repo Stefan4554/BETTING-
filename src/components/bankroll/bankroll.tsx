@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 export interface BankrollStats {
   id: string; name: string; kind: string; currency: string; archived: boolean; allowNegative: boolean;
-  balance: number; reserved: number; tradeExposure: number; equity: number; available: number; openExposure: number;
+  balance: number; reserved: number; tradeExposure: number; equity: number; available: number; openExposure: number; realizedOpenTrades: number;
   starting: number; deposits: number; withdrawals: number; transfers: number; adjustments: number; capital: number;
   totalStaked: number; totalReturn: number; netProfit: number; growth: number | null; peak: number;
   currentDrawdown: number; currentDrawdownPct: number | null; maxDrawdown: number; maxDrawdownPct: number | null;
@@ -67,10 +67,12 @@ export function BankrollView({ stats, transactions, sports }: { stats: BankrollS
           </>} bodyClassName="p-3">
             {[
               ["Starting bankroll", fmtMoney(cur.starting, cur.currency)],
-              ["Current bankroll (equity)", fmtMoney(cur.equity, cur.currency)],
-              ["Cash balance", fmtMoney(cur.balance, cur.currency)],
-              ["Available (cash − open trade risk)", fmtMoney(cur.available, cur.currency)],
-              ["Open exposure", `${fmtMoney(cur.openExposure, cur.currency)} (${cur.pendingBets} bets, ${cur.openTrades} trades)`],
+              ["Total bankroll (available + reserved)", fmtMoney(cur.equity, cur.currency)],
+              ["Available bankroll (ledger cash)", fmtMoney(cur.available, cur.currency)],
+              ["Reserved: open bets", `${fmtMoney(cur.reserved, cur.currency)} (${cur.pendingBets} bets)`],
+              ["Reserved: open trades", `${fmtMoney(cur.tradeExposure, cur.currency)} (${cur.openTrades} trades)`],
+              ["Open exposure (total reserved)", fmtMoney(cur.openExposure, cur.currency)],
+              ["Realised on open trades (partial closes)", fmtMoney(cur.realizedOpenTrades, cur.currency, true)],
               ["Peak bankroll", fmtMoney(cur.peak, cur.currency)],
               ["Total deposits", fmtMoney(cur.deposits, cur.currency)],
               ["Total withdrawals", fmtMoney(cur.withdrawals, cur.currency)],

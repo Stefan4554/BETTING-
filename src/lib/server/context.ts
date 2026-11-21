@@ -50,7 +50,7 @@ export const getContext = cache(async (): Promise<AppContext> => {
     sb.from("strategies").select("*").eq("is_demo", isDemo).order("name"),
     sb.from("market_types").select("*").eq("is_active", true).order("name"),
     sb.from("leagues").select("*").order("name"),
-    sb.from("alerts").select("id", { count: "exact", head: true }).eq("is_demo", isDemo).is("read_at", null),
+    sb.from("alerts").select("id", { count: "exact", head: true }).eq("is_demo", isDemo).eq("in_app", true).is("read_at", null),
   ]);
   return {
     sb, user: { id: uid, email: auth.user.email ?? null }, profile: profile.data, settings: settings.data, isDemo,

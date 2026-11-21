@@ -22,6 +22,13 @@ export interface Position {
   exposure: number;
   avgBackOdds: number | null;
   avgLayOdds: number | null;
+  /** Open-position scenarios excluding already-realised partial closes. */
+  openIfWin: number;
+  openIfLose: number;
+  /** Realised by partial closes: Σ cash-out received − Σ stake closed. */
+  realizedPartial: number;
+  /** Amount the ledger holds for this position: max(0, −min(openIfWin, openIfLose)). */
+  reserved: number;
 }
 
 export function position(executions: Execution[]): Position {
@@ -33,18 +40,52 @@ export function position(executions: Execution[]): Position {
   }
   if (cs > bs + 1e-9) throw new Error("Cashed-out stake exceeds back stake");
   const realised = ca - cs;
-  const ifWin = (bs > 0 ? bw * (1 - cs / bs) : 0) - lw + realised;
-  const ifLose = -(bs - cs) + ls + realised;
+  const openWin = (bs > 0 ? bw * (1 - cs / bs) : 0) - lw;
+  const openLose = -(bs - cs) + ls;
+  const ifWin = openWin + realised;
+  const ifLose = openLose + realised;
   return {
     backStake: bs, layStake: ls, layLiability: lw, cashedStake: cs, cashoutReceived: ca,
     ifWin: money(ifWin).toNumber(), ifLose: money(ifLose).toNumber(),
     exposure: money(Math.max(0, -Math.min(ifWin, ifLose))).toNumber(),
     avgBackOdds: bs > 0 ? 1 + bw / bs : null,
     avgLayOdds: ls > 0 ? 1 + lw / ls : null,
+    openIfWin: money(openWin).toNumber(), openIfLose: money(openLose).toNumber(),
+    realizedPartial: money(realised).toNumber(),
+    reserved: money(Math.max(0, -Math.min(openWin, openLose))).toNumber(),
   };
 }
 
 export type Outcome = "win" | "lose" | "void";
+
+/**
+ * Ledger postings of a trade (mirror of private.add_trade_execution / settle_trade):
+ * each execution moves the reservation to the new required level; a partial close also
+ * realises (amount − stake closed); the final close releases the rest and posts the
+ * remaining P/L. The postings of a closed trade always sum to its realised P/L.
+ */
+export interface LedgerPosting { kind: "reservation" | "cashout" | "settlement"; amount: number }
+export function tradeLedger(executions: Execution[], outcome: Outcome | null, commission = 0): { postings: LedgerPosting[]; reserved: number; realizedPartial: number } {
+  const postings: LedgerPosting[] = [];
+  let reserved = 0, realized = 0;
+  const done: Execution[] = [];
+  for (const e of executions) {
+    done.push(e);
+    const p = position(done);
+    if (p.reserved !== reserved) { postings.push({ kind: "reservation", amount: money(reserved - p.reserved).toNumber() }); reserved = p.reserved; }
+    if (e.side === "cashout") {
+      const r = money((e.amount ?? 0) - e.stake).toNumber();
+      if (r !== 0) postings.push({ kind: "cashout", amount: r });
+      realized = money(realized + r).toNumber();
+    }
+  }
+  if (outcome) {
+    const pnl = settlePosition(executions, outcome, commission);
+    postings.push({ kind: "settlement", amount: money(reserved + pnl - realized).toNumber() });
+    reserved = 0;
+  }
+  return { postings, reserved, realizedPartial: realized };
+}
 
 export function settlePosition(executions: Execution[], outcome: Outcome, commission = 0): number {
   const p = position(executions);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getContext } from "@/lib/server/context";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { encryptSecret, last4 } from "@/lib/server/crypto";
-import { connectionConfig, ingest, loadConnectionKey } from "@/lib/server/ingest";
+import { connectionConfig, ingest, loadConnectionKey, recordIngestOutcome } from "@/lib/server/ingest";
 import { getProvider } from "@/lib/providers/registry";
 import { must, run } from "./util";
 
@@ -59,21 +59,29 @@ async function ownConnection(id: string) {
   return { ctx, conn };
 }
 
-export async function testConnection(id: string) {
+/**
+ * TEST CONNECTION: real request(s) to the provider with the server-stored key; the response
+ * is validated and parsed, the full result is stored on the connection and returned. A network
+ * failure is recorded as "unreachable" (not verified) — never as success. No mocks.
+ */
+export async function testConnection(id: string, withOddsSample = false) {
   return run(async () => {
     const { ctx, conn } = await ownConnection(id);
     const a = admin();
     const key = await loadConnectionKey(a, conn.id);
     const provider = getProvider(conn.provider_id);
     if (!key || !provider) throw new Error("VALIDATION: connection has no stored key or adapter");
-    const r = await provider.test(connectionConfig(conn as never, key));
-    const status = r.ok ? "ok" : /429|quota|limit/i.test(r.message) ? "rate_limited" : "error";
+    const cfg = connectionConfig(conn as never, key);
+    const r = await provider.test(cfg, withOddsSample && cfg.sports?.[0] ? { sampleSport: cfg.sports[0] } : undefined);
     await ctx.sb.from("api_connections").update({
-      status, last_tested_at: new Date().toISOString(), last_error: r.ok ? null : r.message,
-      ...(r.ok ? { last_success_at: new Date().toISOString() } : {}), quota_used: r.quota?.used ?? conn.quota_used, quota_remaining: r.quota?.remaining ?? conn.quota_remaining,
+      status: r.status, last_tested_at: r.testedAt, last_error: r.ok ? null : r.message, last_test_result: r as never,
+      ...(r.ok ? { last_success_at: r.testedAt } : {}), ...(r.ok && r.sample?.oddsEvents ? { last_odds_at: r.testedAt, last_odds_events: r.sample.oddsEvents } : {}),
+      quota_used: r.quota?.used ?? conn.quota_used, quota_remaining: r.quota?.remaining ?? conn.quota_remaining,
     }).eq("id", conn.id);
-    await a.from("api_request_logs").insert({ user_id: ctx.user.id, connection_id: conn.id, provider_id: conn.provider_id, endpoint: "connection test", status: r.ok ? 200 : null, duration_ms: r.latencyMs ?? null, error: r.ok ? null : r.message });
-    if (!r.ok) await ctx.sb.from("alerts").insert({ user_id: ctx.user.id, is_demo: false, type: "api_failure", severity: "warning", title: `${provider.name} connection test failed`, body: r.message });
+    await a.from("api_request_logs").insert({ user_id: ctx.user.id, connection_id: conn.id, provider_id: conn.provider_id, endpoint: `connection test${withOddsSample ? " + odds sample" : ""}`,
+      status: r.reachedProvider ? (r.ok ? 200 : null) : null, duration_ms: r.latencyMs ?? null, error: r.ok ? null : r.message });
+    if (!r.ok) await ctx.sb.from("alerts").upsert({ user_id: ctx.user.id, is_demo: false, type: "api_failure", severity: "warning", title: `${provider.name} connection test failed (${r.status})`,
+      body: r.message, dedupe_key: `api_test:${conn.id}:${r.testedAt.slice(0, 13)}` }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
     return r;
   });
 }
@@ -101,12 +109,9 @@ export async function refreshConnection(id: string, force = false) {
     const since = conn.last_success_at ? Date.now() - Date.parse(conn.last_success_at) : Infinity;
     if (!force && since < cfg.refreshSeconds * 1000) throw new Error(`VALIDATION: refreshed ${Math.round(since / 1000)}s ago; minimum interval is ${cfg.refreshSeconds}s`);
     const r = await ingest(a, { providerId: conn.provider_id, config: cfg, ownerId: ctx.user.id, connectionId: conn.id });
-    const failed = r.errors.length > 0 && r.snapshots === 0 && r.events === 0;
-    await ctx.sb.from("api_connections").update({
-      status: failed ? "error" : "ok", last_error: r.errors[0] ?? null, ...(failed ? {} : { last_success_at: new Date().toISOString() }),
-      quota_used: r.quota?.used ?? conn.quota_used, quota_remaining: r.quota?.remaining ?? conn.quota_remaining,
-    }).eq("id", conn.id);
-    if (failed) await ctx.sb.from("alerts").insert({ user_id: ctx.user.id, is_demo: false, type: "api_failure", severity: "warning", title: "Odds ingestion failed", body: r.errors.slice(0, 3).join(" · ") });
+    const failed = await recordIngestOutcome(ctx.sb, conn, r);
+    if (failed) await ctx.sb.from("alerts").upsert({ user_id: ctx.user.id, is_demo: false, type: "api_failure", severity: "warning", title: `Odds ingestion failed (${r.errorStatus ?? "error"})`,
+      body: r.errors.slice(0, 3).join(" · "), dedupe_key: `api_failure:${conn.id}:${new Date().toISOString().slice(0, 13)}` }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
     return r;
   });
 }

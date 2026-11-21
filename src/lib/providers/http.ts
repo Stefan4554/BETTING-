@@ -4,16 +4,37 @@
  * in-memory TTL cache, usage tracking and API-key redaction in logs.
  */
 
+/**
+ * Failure classes, mapped to connection status in the UI:
+ *   auth → auth_error · rate_limit → rate_limited · outage → outage (5xx) ·
+ *   timeout / network → unreachable (connection could NOT be verified) ·
+ *   malformed → invalid_response · http → error (other 4xx)
+ */
+export type ProviderErrorKind = "auth" | "rate_limit" | "outage" | "timeout" | "network" | "malformed" | "http";
+
 export class ProviderError extends Error {
   constructor(
     message: string,
     readonly provider: string,
     readonly status?: number,
     readonly retryable = false,
+    readonly kind: ProviderErrorKind = "http",
+    readonly body?: string,
   ) {
     super(message);
   }
 }
+
+export function classifyStatus(status: number, body = ""): ProviderErrorKind {
+  if (status === 429 || /quota|usage.*(limit|credits)|rate.?limit|OUT_OF_USAGE/i.test(body)) return "rate_limit";
+  if (status === 401 || status === 403) return "auth";
+  if (status >= 500) return "outage";
+  return "http";
+}
+
+export const CONNECTION_STATUS: Record<ProviderErrorKind, string> = {
+  auth: "auth_error", rate_limit: "rate_limited", outage: "outage", timeout: "unreachable", network: "unreachable", malformed: "invalid_response", http: "error",
+};
 
 export interface UsageRecord {
   provider: string;
@@ -101,6 +122,8 @@ export interface RequestOptions {
   costHeader?: string;
   quotaHeaders?: { used?: string; remaining?: string };
   fetchImpl?: typeof fetch;
+  /** Upper bound for a single Retry-After / backoff wait. */
+  maxRetryWaitMs?: number;
 }
 
 export interface JsonResponse<T = unknown> {
@@ -145,28 +168,41 @@ export async function requestJson<T = unknown>(o: RequestOptions): Promise<JsonR
       };
 
       if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 300);
+        const kind = classifyStatus(res.status, body);
+        // 429 and 5xx are transient; auth errors and exhausted quotas are not retried.
         const retryable = res.status === 429 || res.status >= 500;
-        const msg = `${o.provider} ${res.status} ${res.statusText} on ${endpoint}`;
+        const detail = body.replace(/\s+/g, " ").replace(/apiKey=[^&\s"]+/gi, "apiKey=***").trim();
+        const msg = `${o.provider} HTTP ${res.status}${res.statusText ? " " + res.statusText : ""} on ${endpoint}${detail ? ` — ${detail.slice(0, 160)}` : ""}`;
         track({ provider: o.provider, endpoint, status: res.status, durationMs: Date.now() - started, cacheHit: false, costUnits: cost, error: msg, at: new Date().toISOString() }, quota);
-        lastErr = new ProviderError(msg, o.provider, res.status, retryable);
+        lastErr = new ProviderError(msg, o.provider, res.status, retryable, kind, detail);
         if (!retryable || attempt === retries) throw lastErr;
         const retryAfter = Number(headers["retry-after"]);
-        await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff(attempt));
+        await sleep(Math.min(o.maxRetryWaitMs ?? 10_000, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoff(attempt)));
         continue;
       }
 
-      const data = (await res.json()) as T;
+      const text = await res.text();
+      let data: T;
+      try { data = JSON.parse(text) as T; }
+      catch {
+        const msg = `${o.provider} returned a malformed (non-JSON) response on ${endpoint}: ${text.slice(0, 80).replace(/\s+/g, " ")}`;
+        track({ provider: o.provider, endpoint, status: res.status, durationMs: Date.now() - started, cacheHit: false, costUnits: cost, error: msg, at: new Date().toISOString() }, quota);
+        throw new ProviderError(msg, o.provider, res.status, false, "malformed");
+      }
       track({ provider: o.provider, endpoint, status: res.status, durationMs: Date.now() - started, cacheHit: false, costUnits: cost, error: null, at: new Date().toISOString() }, quota);
       const at = Date.now();
-      cache.set(key, { at, ttl, value: data, headers });
+      if (ttl > 0) cache.set(key, { at, ttl, value: data, headers });
       return { data, headers, cacheHit: false, fetchedAt: new Date(at).toISOString() };
     } catch (e) {
       if (e instanceof ProviderError && !e.retryable) throw e;
       if (e instanceof ProviderError && attempt === retries) throw e;
       if (!(e instanceof ProviderError)) {
-        const msg = `${o.provider} network error on ${endpoint}: ${(e as Error).name === "AbortError" ? "timeout" : (e as Error).message}`;
+        const timeout = (e as Error).name === "AbortError";
+        const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+        const msg = `${o.provider} ${timeout ? `timed out after ${o.timeoutMs ?? 10_000} ms` : `unreachable (${cause?.code ?? cause?.message ?? (e as Error).message})`} on ${endpoint}`;
         track({ provider: o.provider, endpoint, status: null, durationMs: Date.now() - started, cacheHit: false, costUnits: null, error: msg, at: new Date().toISOString() });
-        lastErr = new ProviderError(msg, o.provider, undefined, true);
+        lastErr = new ProviderError(msg, o.provider, undefined, true, timeout ? "timeout" : "network");
         if (attempt === retries) throw lastErr;
       }
       await sleep(backoff(attempt));
@@ -174,7 +210,7 @@ export async function requestJson<T = unknown>(o: RequestOptions): Promise<JsonR
       clearTimeout(timer);
     }
   }
-  throw lastErr ?? new ProviderError("unreachable", o.provider);
+  throw lastErr ?? new ProviderError("unreachable", o.provider, undefined, false, "network");
 }
 
 function backoff(attempt: number) {

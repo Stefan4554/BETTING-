@@ -91,7 +91,10 @@ export function openTradeExposures(trades: TradeRow[], fx: FxTable, ctx: AppCont
   return trades.filter((t) => t.status === "open").map((t) => {
     const br = ctx.bankrolls.find((b) => b.id === t.bankroll_id);
     const k = Number(t.fx_rate) * (fx.rate(br?.currency ?? t.currency, ctx.displayCurrency) ?? 1);
-    return { id: t.id, eventName: t.event_name, sport: t.sports?.name ?? "Other", exposure: position(executionsOf(t)).exposure * k };
+    // Exposure = the amount actually reserved in the ledger for this position (bankroll ccy).
+    const kb = fx.rate(br?.currency ?? t.currency, ctx.displayCurrency) ?? 1;
+    void k; void position;
+    return { id: t.id, eventName: t.event_name, sport: t.sports?.name ?? "Other", exposure: Number(t.reserved_base) * kb };
   });
 }
 
@@ -108,7 +111,7 @@ export async function loadRiskLimits(ctx: AppContext) {
   return data;
 }
 
-/** Sum of bankroll equity (cash + reserved stakes) in display currency. */
+/** Sum of bankroll equity in display currency: cash (available) + amounts reserved by open bets and trades. */
 export function bankrollTotals(ctx: AppContext, fx: FxTable, pendingReserved: Map<string, number>) {
   let balance = 0, reserved = 0, missing = 0;
   for (const b of ctx.bankrolls.filter((x) => !x.archived)) {

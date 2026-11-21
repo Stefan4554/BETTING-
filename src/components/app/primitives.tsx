@@ -60,7 +60,7 @@ export function Missing({ reason = "Not available" }: { reason?: string }) {
 }
 
 const STATUS_TONE: Record<string, "up" | "down" | "warn" | "neutral" | "accent"> = {
-  pending: "accent", won: "up", half_won: "up", lost: "down", half_lost: "down", void: "neutral", cashed_out: "warn",
+  pending: "accent", won: "up", half_won: "up", partial_win: "up", lost: "down", half_lost: "down", partial_loss: "down", void: "neutral", break_even: "neutral", cashed_out: "warn",
   open: "accent", settled: "neutral",
 };
 export function StatusBadge({ status }: { status: string }) {

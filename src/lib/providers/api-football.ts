@@ -6,7 +6,8 @@
  */
 import { z } from "zod";
 import { requestJson, ProviderError } from "./http";
-import type { NormalizedEvent, NormalizedMarket, OddsProvider, QuotaInfo } from "./types";
+import type { NormalizedEvent, NormalizedMarket, OddsProvider, QuotaInfo, TestCheck, TestResult } from "./types";
+import { failedTest } from "./test-helpers";
 
 export const API_FOOTBALL = "api_football";
 const BASE = "https://v3.football.api-sports.io";
@@ -74,18 +75,31 @@ export function normalizeOdds(o: z.infer<typeof Odds>, f: z.infer<typeof Fixture
 export const apiFootball: OddsProvider = {
   id: API_FOOTBALL,
   name: "API-Football",
-  async test(cfg) {
-    const t = Date.now();
+  async test(cfg, opts) {
+    const started = Date.now();
+    const checks: TestCheck[] = [];
     try {
-      const r = await requestJson<{ errors?: unknown; response: { requests?: { current: number; limit_day: number }; subscription?: { plan: string } } }>({
-        provider: API_FOOTBALL, url: `${BASE}/status`, headers: headers(cfg.apiKey), ttlMs: 0, retries: 1, fetchImpl: cfg.fetchImpl });
-      const err = apiErrors(r.data);
-      if (err) return { ok: false, message: err, latencyMs: Date.now() - t };
-      const req = r.data.response.requests;
-      return { ok: true, message: `Connected (${r.data.response.subscription?.plan ?? "plan unknown"})`, latencyMs: Date.now() - t,
-        quota: req ? { used: req.current, remaining: req.limit_day - req.current, lastCost: 0 } : quota(r.headers) };
+      const r = await requestJson<unknown>({ provider: API_FOOTBALL, url: `${BASE}/status`, headers: headers(cfg.apiKey), ttlMs: 0, retries: 1, timeoutMs: cfg.timeoutMs ?? 10_000, fetchImpl: cfg.fetchImpl, maxRetryWaitMs: 3_000 });
+      checks.push({ name: "Request", ok: true, detail: `HTTP 200 from /status in ${Date.now() - started} ms` });
+      const d = z.object({ errors: z.unknown().optional(), response: z.union([z.object({ requests: z.object({ current: z.number(), limit_day: z.number() }).optional(), subscription: z.object({ plan: z.string() }).partial().optional() }).passthrough(), z.array(z.unknown())]) }).parse(r.data);
+      const err = apiErrors(d);
+      if (err) {
+        // API-Football reports auth failures with HTTP 200 + errors.token
+        throw new ProviderError(err, API_FOOTBALL, 200, false, /token|key|subscription/i.test(err) ? "auth" : /limit|requests/i.test(err) ? "rate_limit" : "http");
+      }
+      if (Array.isArray(d.response)) throw new ProviderError("status endpoint returned no account information", API_FOOTBALL, 200, false, "malformed");
+      const req = d.response.requests;
+      checks.push({ name: "Account", ok: true, detail: `plan ${d.response.subscription?.plan ?? "unknown"}${req ? `, ${req.current}/${req.limit_day} requests today` : ""}` });
+      const quotaInfo = req ? { used: req.current, remaining: req.limit_day - req.current, lastCost: 0 } : quota(r.headers);
+      const sample: NonNullable<TestResult["sample"]> = {};
+      if (opts?.sampleSport) {
+        const o = await this.fetchOdds(cfg, opts.sampleSport);
+        Object.assign(sample, { sportKey: opts.sampleSport, oddsEvents: o.events.length, bookmakers: new Set(o.events.flatMap((e) => e.markets.flatMap((m) => m.quotes.map((x) => x.bookmakerKey)))).size });
+        checks.push({ name: "Odds sample", ok: true, detail: `${o.events.length} fixtures with odds parsed for league ${opts.sampleSport}` });
+      }
+      return { ok: true, status: "ok", message: `Connected (${d.response.subscription?.plan ?? "plan unknown"})`, quota: quotaInfo, latencyMs: Date.now() - started, checks, sample, testedAt: new Date().toISOString(), reachedProvider: true };
     } catch (e) {
-      return { ok: false, message: (e as ProviderError).message, latencyMs: Date.now() - t };
+      return failedTest(e, checks, started);
     }
   },
   async listSports() {

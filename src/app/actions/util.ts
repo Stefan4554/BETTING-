@@ -1,5 +1,8 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { emailConfigured, processEmailOutbox } from "@/lib/server/email-worker";
 import type { ZodError } from "zod";
 
 export type ActionResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> };
@@ -21,7 +24,13 @@ export function fail(e: unknown): ActionResult<never> {
 export async function run<T>(fn: () => Promise<T>, revalidate = true): Promise<ActionResult<T>> {
   try {
     const data = await fn();
-    if (revalidate) revalidatePath("/", "layout");
+    if (revalidate) {
+      revalidatePath("/", "layout");
+      // Mutations can raise alerts → queued emails. Deliver promptly after the response;
+      // the cron worker is the reliable fallback (and handles retries).
+      const admin = supabaseAdmin();
+      if (admin && emailConfigured().ok) after(() => processEmailOutbox(admin, { limit: 10 }).catch(() => undefined));
+    }
     return { ok: true, data };
   } catch (e) {
     if (e && typeof e === "object" && "digest" in e && String((e as { digest: unknown }).digest).startsWith("NEXT_REDIRECT")) throw e;

@@ -6,7 +6,8 @@
  */
 import { z } from "zod";
 import { requestJson, ProviderError } from "./http";
-import type { NormalizedEvent, OddsProvider, ProviderConfig, QuotaInfo } from "./types";
+import type { NormalizedEvent, OddsProvider, ProviderConfig, QuotaInfo, TestCheck, TestResult } from "./types";
+import { failedTest } from "./test-helpers";
 
 export const THE_ODDS_API = "the_odds_api";
 const BASE = "https://api.the-odds-api.com/v4";
@@ -69,16 +70,33 @@ export function normalizeEvent(e: z.infer<typeof EventSchema>, sportKey: string,
 export const theOddsApi: OddsProvider = {
   id: THE_ODDS_API,
   name: "The Odds API",
-  async test(cfg) {
-    const t = Date.now();
+  async test(cfg, opts) {
+    const started = Date.now();
+    const checks: TestCheck[] = [];
     try {
-      const r = await requestJson<unknown[]>({ provider: THE_ODDS_API, url: `${BASE}/sports/?apiKey=${encodeURIComponent(cfg.apiKey)}`, ttlMs: 0, retries: 1, fetchImpl: cfg.fetchImpl,
-        quotaHeaders: { used: "x-requests-used", remaining: "x-requests-remaining" } });
-      const n = z.array(SportSchema).parse(r.data).filter((s) => s.active).length;
-      return { ok: true, message: `Connected: ${n} active sports available`, quota: quota(r.headers), latencyMs: Date.now() - t };
+      // 1. Real request: /sports is authenticated but free of quota cost.
+      const r = await requestJson<unknown>({ provider: THE_ODDS_API, url: `${BASE}/sports/?apiKey=${encodeURIComponent(cfg.apiKey)}`, ttlMs: 0, retries: 1,
+        timeoutMs: cfg.timeoutMs ?? 10_000, fetchImpl: cfg.fetchImpl, quotaHeaders: { used: "x-requests-used", remaining: "x-requests-remaining" }, maxRetryWaitMs: 3_000 });
+      checks.push({ name: "Authenticated request", ok: true, detail: `HTTP 200 from /v4/sports in ${Date.now() - started} ms` });
+      // 2. Validate + parse.
+      const sports = z.array(SportSchema).min(1, "empty sports list").parse(r.data);
+      const active = sports.filter((x) => x.active);
+      checks.push({ name: "Response schema", ok: true, detail: `${sports.length} sports parsed, ${active.length} active` });
+      const q = quota(r.headers);
+      checks.push({ name: "Quota headers", ok: q.remaining != null, detail: q.remaining != null ? `${q.remaining} credits remaining, ${q.used ?? "?"} used` : "provider did not report quota on this endpoint" });
+      const sample: NonNullable<TestResult["sample"]> = { sports: sports.length, activeSports: active.length };
+      // 3. Optional: fetch and parse a real odds payload.
+      if (opts?.sampleSport) {
+        const o = await this.fetchOdds(cfg, opts.sampleSport);
+        const books = new Set(o.events.flatMap((e) => e.markets.flatMap((m) => m.quotes.map((x) => x.bookmakerKey))));
+        Object.assign(sample, { sportKey: opts.sampleSport, oddsEvents: o.events.length, bookmakers: books.size, markets: o.events.reduce((a, e) => a + e.markets.length, 0) });
+        checks.push({ name: "Odds sample", ok: true, detail: `${o.events.length} events, ${books.size} bookmakers parsed for ${opts.sampleSport}; cost ${o.quota.lastCost ?? "?"} credits` });
+        if (o.quota.remaining != null) Object.assign(q, { remaining: o.quota.remaining, used: o.quota.used, lastCost: o.quota.lastCost });
+      }
+      return { ok: true, status: "ok", message: `Connected: ${active.length} active sports${sample.oddsEvents != null ? `, ${sample.oddsEvents} events with odds` : ""}`,
+        quota: q, latencyMs: Date.now() - started, checks, sample, testedAt: new Date().toISOString(), reachedProvider: true };
     } catch (e) {
-      const pe = e as ProviderError;
-      return { ok: false, message: pe.status === 401 ? "Invalid API key (401)" : pe.status === 429 ? "Rate limit or quota exceeded (429)" : pe.message, latencyMs: Date.now() - t };
+      return failedTest(e, checks, started);
     }
   },
   async listSports(cfg) {
@@ -88,12 +106,14 @@ export const theOddsApi: OddsProvider = {
   async fetchOdds(cfg, sport) {
     const params = new URLSearchParams({ apiKey: cfg.apiKey, regions: cfg.regions || "eu", markets: cfg.markets || "h2h", oddsFormat: "decimal", dateFormat: "iso" });
     const r = await requestJson<unknown[]>({
-      provider: THE_ODDS_API, url: `${BASE}/sports/${encodeURIComponent(sport)}/odds/?${params}`, ttlMs: 55_000, rateLimitPerMinute: 30, fetchImpl: cfg.fetchImpl,
+      provider: THE_ODDS_API, url: `${BASE}/sports/${encodeURIComponent(sport)}/odds/?${params}`, ttlMs: 55_000, rateLimitPerMinute: 30, fetchImpl: cfg.fetchImpl, timeoutMs: cfg.timeoutMs ?? 15_000, retries: 2,
       costHeader: "x-requests-last", quotaHeaders: { used: "x-requests-used", remaining: "x-requests-remaining" },
     });
     const sports = await this.listSports(cfg).catch(() => []);
     const sportKey = sports.find((s) => s.key === sport)?.sportKey ?? sportFromKey(sport);
-    const events = z.array(EventSchema).parse(r.data).map((e) => normalizeEvent(e, sportKey, r.fetchedAt));
+    const parsed = z.array(EventSchema).safeParse(r.data);
+    if (!parsed.success) throw new ProviderError(`${THE_ODDS_API} odds response did not match the expected structure: ${parsed.error.issues[0]?.path.join(".")} ${parsed.error.issues[0]?.message}`, THE_ODDS_API, 200, false, "malformed");
+    const events = parsed.data.map((e) => normalizeEvent(e, sportKey, r.fetchedAt));
     return { events, quota: quota(r.headers), fetchedAt: r.fetchedAt };
   },
 };

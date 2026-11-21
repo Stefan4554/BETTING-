@@ -2,7 +2,7 @@
   "name": "betting-edge-pro",
   "version": "0.1.0",
   "private": true,
-  "description": "BETTING EDGE PRO \u2014 professional sports betting tracking, bankroll management and quantitative analytics",
+  "description": "BETTING EDGE PRO — professional sports betting tracking, bankroll management and quantitative analytics",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,7 +13,9 @@
     "test:db": "bash scripts/test-db.sh",
     "test:parity": "vitest run tests/parity.db.test.ts",
     "test:e2e": "bash tests/e2e/run.sh",
-    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts"
+    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
+    "test:live-odds": "tsx scripts/live-odds-check.ts",
+    "lint": "next lint"
   },
   "engines": {
     "node": ">=20"
@@ -55,6 +57,7 @@
     "@types/react-dom": "^19.3.0",
     "pg": "^8.23.1",
     "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   }

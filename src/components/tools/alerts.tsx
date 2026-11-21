@@ -12,7 +12,7 @@ import { fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const TYPES: Record<string, string> = {
-  bet_settled: "Bet settled", large_result: "Large profit/loss", daily_loss: "Daily loss", weekly_loss: "Weekly loss", drawdown: "Drawdown", odds_movement: "Odds movement",
+  bet_settled: "Bet settled", large_result: "Large profit/loss", large_profit: "Large profit", large_loss: "Large loss", daily_loss: "Daily loss", weekly_loss: "Weekly loss", drawdown: "Drawdown", odds_movement: "Odds movement",
   clv_update: "CLV update", api_failure: "API failure", exposure: "Exposure", stake_limit: "Stake limit", goal_progress: "Goal progress", system: "System",
 };
 
