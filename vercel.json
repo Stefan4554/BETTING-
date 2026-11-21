@@ -1,7 +1,15 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "functions": {
+    "src/app/api/cron/**/route.ts": { "maxDuration": 300 }
+  },
   "crons": [
-    { "path": "/api/cron/ingest-odds", "schedule": "*/10 * * * *" },
-    { "path": "/api/cron/ingest-matches", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/evaluate-alerts", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/ingest", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/email", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/fx", "schedule": "30 16 * * 1-5" },
+    { "path": "/api/cron/maintenance", "schedule": "15 3 * * *" }
   ]
 }

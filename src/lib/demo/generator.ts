@@ -1,16 +1,9 @@
 /**
- * DEMO DATA — deterministic synthetic dataset for demo mode only.
- *
- * Everything here is fictional: player names, tournaments and bookmakers are invented
- * so that no real person or bookmaker is attributed numbers they never produced.
- * Every object carries source.provider = "demo" and the UI shows a DEMO banner.
+ * Demo workspace dataset. Deterministic (seeded) and SIMULATED: fictional teams and players,
+ * simulated prices and outcomes. It is loaded into rows flagged is_demo = true through the
+ * same settlement functions as real bets, so every analytics feature can be explored safely.
+ * It is never mixed with live data and is replaced wholesale by "Reset demo data".
  */
-import type {
-  LiveScore, Match, MatchStatistics, MatchStatus, OddsQuote, OddsSnapshot, Player, PlayerMatchStats, Surface, Tour, Tournament,
-} from "../domain";
-import { expectedScore } from "../engine/elo";
-
-export const DEMO_PROVIDER = "demo";
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -23,319 +16,200 @@ function rng(seed: number) {
   };
 }
 
-const FIRST_M = ["Aron", "Bastien", "Corin", "Dario", "Emil", "Fabian", "Goran", "Henrik", "Ivo", "Jonas", "Kai", "Lior", "Matteo", "Nils", "Oskar", "Pavel", "Quentin", "Rafe", "Soren", "Tomas", "Ulrich", "Vito", "Wim", "Yannick"];
-const FIRST_W = ["Alina", "Bianca", "Chiara", "Daria", "Elena", "Freya", "Greta", "Hana", "Ilse", "Jana", "Kira", "Lena", "Mila", "Nora", "Olga", "Petra", "Rhea", "Sara", "Tea", "Una", "Vera", "Wanda", "Yara", "Zoe"];
-const LAST = ["Varga", "Lindqvist", "Moreau", "Castell", "Brenner", "Okafor", "Halvorsen", "Rinaldi", "Duarte", "Kovacs", "Novak", "Ferreira", "Sato", "Mahler", "Petrov", "Alonso", "Berg", "Costa", "Dahl", "Eriksen", "Fontaine", "Gallo", "Horvat", "Ivanov", "Jensen", "Keller", "Laurent", "Marin"];
-const COUNTRIES = ["ESP", "FRA", "ITA", "GER", "SRB", "USA", "AUS", "ARG", "GBR", "SWE", "NOR", "CZE", "POL", "JPN", "CAN", "CRO"];
+const CLUBS = ["Northbridge FC", "Riverside Athletic", "Port Calder", "Ashford Rovers", "Kingsmere United", "Valecrest City", "Harlow Town",
+  "Eastmoor Albion", "Brightwater", "Stonegate Wanderers", "Fenwick County", "Oakhurst", "Millbrook Rangers", "Westhaven", "Corrin Bay", "Thornfield",
+  "Ravenscar", "Delmont Sporting", "Kestrel Park", "Larkspur United", "Mossgate", "Pellham City", "Quarry Lane", "Saltmarsh Town", "Tidewater", "Uxbridge Vale",
+  "Wexcombe", "Yarrowfield", "Zennor Athletic", "Blackmere", "Cobalt Rovers", "Drumlin FC"];
+const PLAYERS = ["A. Varga", "L. Moreau", "K. Tanaka", "D. Okafor", "S. Lindqvist", "M. Ferreira", "J. Novak", "R. Castell", "E. Brandt", "T. Halloran",
+  "P. Ivanova", "C. Duarte", "H. Sato", "N. Kowal", "B. Arendt", "F. Romano"];
+const HOOPS = ["Metro Hawks", "Bay Cyclones", "Capital Rush", "Summit Peaks", "Harbor Kings", "Desert Suns", "Lakeside Owls", "Iron City Forge",
+  "Coastal Waves", "Granite Bears"];
+const PUCKS = ["Northern Lynx", "Harbour Wolves", "Steel Valley", "Glacier Bay", "Red River Bisons", "Pinewood Owls", "Ironside Rams", "Frost Harbour"];
 
-export const DEMO_BOOKMAKERS: { key: string; name: string; margin: number; sharp: boolean; noise: number }[] = [
-  { key: "demo_sharpline", name: "Sharpline (demo)", margin: 0.025, sharp: true, noise: 0.004 },
-  { key: "demo_exchange", name: "Exchange X (demo)", margin: 0.02, sharp: true, noise: 0.005 },
-  { key: "demo_northbet", name: "Northbet (demo)", margin: 0.05, sharp: false, noise: 0.008 },
-  { key: "demo_baseline", name: "Baseline Sports (demo)", margin: 0.055, sharp: false, noise: 0.01 },
-  { key: "demo_courtside", name: "Courtside (demo)", margin: 0.06, sharp: false, noise: 0.01 },
-  { key: "demo_matchpoint", name: "Matchpoint (demo)", margin: 0.065, sharp: false, noise: 0.012 },
-  { key: "demo_topspin", name: "Topspin Bet (demo)", margin: 0.07, sharp: false, noise: 0.014 },
-  { key: "demo_ace", name: "AceOdds (demo)", margin: 0.075, sharp: false, noise: 0.015 },
-];
+/** Platform league names (seeded in migrations 0005/0008) per sport. Teams map to a fixed league. */
+export const DEMO_LEAGUES: Record<string, string[]> = {
+  football: ["English Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UEFA Champions League", "UEFA Europa League", "Slovenian PrvaLiga"],
+  basketball: ["NBA", "EuroLeague", "EuroCup", "NCAA"],
+  tennis: ["ATP Tour", "WTA Tour", "Grand Slam", "Challenger Tour"],
+  ice_hockey: ["NHL", "KHL", "SHL"],
+};
+const DOMESTIC: Record<string, string[]> = { ...DEMO_LEAGUES, football: DEMO_LEAGUES.football!.filter((l) => !l.startsWith("UEFA")) };
+const teamLeague = (sport: string, list: string[], team: string) => DOMESTIC[sport]![list.indexOf(team) % DOMESTIC[sport]!.length]!;
 
-export interface DemoPlayer extends Player {
-  strength: number;
-  surfaceBias: Partial<Record<Surface, number>>;
-}
+/** Same domestic league → that league; otherwise a European competition (deterministic). */
+const footballLeague = (h: string, a: string) => {
+  const lh = teamLeague("football", CLUBS, h), la = teamLeague("football", CLUBS, a);
+  return lh === la ? lh : (CLUBS.indexOf(h) + CLUBS.indexOf(a)) % 2 ? "UEFA Champions League" : "UEFA Europa League";
+};
 
-export interface HistoryMatch {
-  id: string;
-  date: string;
-  tournamentId: string;
-  surface: Surface;
-  bestOf: 3 | 5;
-  winnerId: string;
-  loserId: string;
-  sets: { w: number; l: number; tb: boolean }[];
-  durationMin: number | null;
-  winnerRankAtTime: number | null;
-  loserRankAtTime: number | null;
-  /** Service/return aggregates per side (winner/loser). */
-  svc: { w: { held: number; played: number }; l: { held: number; played: number } } | null;
-}
+const BOOKS = ["pinnacle", "bet365", "williamhill", "unibet", "betfair_ex", "betway"];
 
-export interface DemoDataset {
-  generatedAt: string;
-  players: DemoPlayer[];
-  tournaments: Tournament[];
-  history: HistoryMatch[];
-  today: Match[];
-  trueProb: Record<string, number>;
-  stats: Record<string, MatchStatistics>;
-  odds: Record<string, OddsSnapshot[]>;
-  momentum: Record<string, { point: number; value: number }[]>;
-}
+type Json = Record<string, unknown>;
 
-function simulateMatch(r: () => number, pA: number, bestOf: 3 | 5) {
-  // Convert match-level probability into an approximate per-set probability.
-  const pSet = bestOf === 5 ? 0.5 + (pA - 0.5) * 0.75 : 0.5 + (pA - 0.5) * 0.82;
-  const need = bestOf === 5 ? 3 : 2;
-  const sets: { a: number; b: number; tb: boolean }[] = [];
-  let wa = 0, wb = 0;
-  while (wa < need && wb < need) {
-    const aWins = r() < pSet;
-    const loserGames = Math.floor(r() * 6);
-    const tb = r() < 0.15;
-    const set = tb ? { a: aWins ? 7 : 6, b: aWins ? 6 : 7, tb } : { a: aWins ? (loserGames === 5 ? 7 : 6) : loserGames, b: aWins ? loserGames : loserGames === 5 ? 7 : 6, tb };
-    sets.push(set);
-    if (aWins) wa++; else wb++;
-  }
-  return { aWon: wa > wb, sets };
-}
+export interface DemoDataset { bankrolls: Json[]; strategies: Json[]; bets: Json[]; trades: Json[]; events: Json[] }
 
-function isoAt(base: Date, minutesOffset: number) {
-  return new Date(base.getTime() + minutesOffset * 60_000).toISOString();
-}
+export function buildDemoDataset(now = new Date(), seed = 20261120): DemoDataset {
+  const r = rng(seed);
+  const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)]!;
+  const round = (x: number, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
+  const iso = (t: number) => new Date(t).toISOString();
+  const DAY = 86_400_000;
+  const start = now.getTime() - 150 * DAY;
 
-export function generateDemo(now = new Date()): DemoDataset {
-  const daySeed = Math.floor(now.getTime() / 86_400_000);
-  const r = rng(20261119);
-  const generatedAt = now.toISOString();
+  const bankrolls: Json[] = [
+    { name: "Main", kind: "main", currency: "EUR", transactions: [
+      { type: "deposit", amount: 5000, occurred_at: iso(start - DAY), note: "Initial bankroll" },
+      { type: "deposit", amount: 1500, occurred_at: iso(start + 70 * DAY), note: "Top-up" },
+      { type: "withdrawal", amount: 800, occurred_at: iso(start + 120 * DAY), note: "Profit withdrawal" },
+    ] },
+    { name: "Tennis", kind: "sport", currency: "EUR", sport_key: "tennis", transactions: [{ type: "deposit", amount: 2000, occurred_at: iso(start - DAY) }] },
+    { name: "Live Trading", kind: "live", currency: "EUR", transactions: [{ type: "deposit", amount: 1500, occurred_at: iso(start - DAY) }] },
+  ];
 
-  // Players --------------------------------------------------------------
-  const players: DemoPlayer[] = [];
-  const mkTour = (tour: Tour, firsts: string[]) => {
-    for (let i = 0; i < 24; i++) {
-      const strength = 1500 + r() * 330;
-      const bias: Partial<Record<Surface, number>> = { clay: (r() - 0.5) * 120, grass: (r() - 0.5) * 120, hard: (r() - 0.5) * 60, indoor_hard: (r() - 0.5) * 80 };
-      players.push({
-        id: `demo:${tour}:${i}`,
-        name: `${firsts[i]} ${LAST[(i * 7 + (tour === "wta" ? 3 : 0)) % LAST.length]}`,
-        countryCode: COUNTRIES[Math.floor(r() * COUNTRIES.length)]!,
-        tour,
-        rank: null,
-        rankingPoints: null,
-        birthDate: new Date(Date.UTC(1993 + Math.floor(r() * 13), Math.floor(r() * 12), 1 + Math.floor(r() * 27))).toISOString().slice(0, 10),
-        handedness: r() < 0.15 ? "left" : "right",
-        heightCm: Math.round((tour === "atp" ? 178 : 168) + r() * 20),
-        strength,
-        surfaceBias: bias,
-      });
+  const strategies: Json[] = [
+    { name: "Pinnacle value", sport_key: "football", description: "Back prices at soft books that beat the Pinnacle no-vig line by ≥3%.", entry_conditions: "Edge ≥ 3% vs no-vig sharp line", min_odds: 1.6, max_odds: 4, stake_rule: { type: "kelly", value: 0.25 }, color: "#3987e5" },
+    { name: "Underdog AH", sport_key: "football", description: "Home underdogs on +0.25/+0.5 Asian lines.", entry_conditions: "Home team priced ≥ 2.6 in 1X2", min_odds: 1.8, max_odds: 2.3, stake_rule: { type: "flat", value: 50 }, color: "#d95926" },
+    { name: "Tennis serve model", sport_key: "tennis", description: "Hold/break model edges pre-match.", entry_conditions: "Model edge ≥ 4pp", min_odds: 1.4, max_odds: 3.5, stake_rule: { type: "kelly", value: 0.2 }, color: "#199e70" },
+    { name: "Basketball totals", sport_key: "basketball", description: "Pace-adjusted totals.", entry_conditions: "Projected total differs ≥ 4 pts", min_odds: 1.85, max_odds: 2.1, stake_rule: { type: "units", value: 2 }, color: "#c98500" },
+    { name: "Hockey puck line", sport_key: "ice_hockey", description: "Favourites −1.5 when goalie edge is large.", entry_conditions: "Save-% differential ≥ 1.5pp", min_odds: 1.9, max_odds: 3.2, stake_rule: { type: "flat", value: 30 }, color: "#9085e9" },
+    { name: "In-play momentum", sport_key: "football", description: "Live overs after sustained pressure.", entry_conditions: "xG pressure index > 0.7 after 60'", stake_rule: { type: "flat", value: 25 }, color: "#d55181" },
+  ];
+
+  type Ctx = { sport: string; bankroll: string; strategy: string; event: string; home?: string; away?: string; league: string };
+  const bets: Json[] = [];
+  const N = 360;
+  for (let i = 0; i < N; i++) {
+    const t = start + (i / N) * (150 * DAY - 8 * 3_600_000) + r() * 6 * 3_600_000;
+    const kindRoll = r();
+    let c: Ctx;
+    if (kindRoll < 0.5) {
+      const h = pick(CLUBS);
+      const domestic = r() < 0.75;   // 3 in 4 fixtures are domestic league games, the rest European ties
+      let a = pick(CLUBS);
+      while (a === h || (domestic ? teamLeague("football", CLUBS, a) !== teamLeague("football", CLUBS, h) : teamLeague("football", CLUBS, a) === teamLeague("football", CLUBS, h))) a = pick(CLUBS);
+      // domestic leagues pair clubs of the same league; European competitions may mix
+      const lg = footballLeague(h, a);
+      c = { sport: "football", bankroll: "Main", strategy: r() < 0.6 ? "Pinnacle value" : r() < 0.5 ? "Underdog AH" : "In-play momentum", event: `${h} v ${a}`, home: h, away: a, league: lg };
+    } else if (kindRoll < 0.75) {
+      const h = pick(PLAYERS); let a = pick(PLAYERS); while (a === h) a = pick(PLAYERS);
+      c = { sport: "tennis", bankroll: "Tennis", strategy: "Tennis serve model", event: `${h} v ${a}`, home: h, away: a, league: pick(DEMO_LEAGUES.tennis!) };
+    } else if (kindRoll < 0.9) {
+      const h = pick(HOOPS); let a = pick(HOOPS); while (a === h || teamLeague("basketball", HOOPS, a) !== teamLeague("basketball", HOOPS, h)) a = pick(HOOPS);
+      c = { sport: "basketball", bankroll: "Main", strategy: "Basketball totals", event: `${h} @ ${a}`, home: a, away: h, league: teamLeague("basketball", HOOPS, h) };
+    } else {
+      const h = pick(PUCKS); let a = pick(PUCKS); while (a === h || teamLeague("ice_hockey", PUCKS, a) !== teamLeague("ice_hockey", PUCKS, h)) a = pick(PUCKS);
+      c = { sport: "ice_hockey", bankroll: "Main", strategy: "Hockey puck line", event: `${h} v ${a}`, home: h, away: a, league: teamLeague("ice_hockey", PUCKS, h) };
     }
-  };
-  mkTour("atp", FIRST_M);
-  mkTour("wta", FIRST_W);
-  for (const tour of ["atp", "wta"] as const) {
-    const ps = players.filter((p) => p.tour === tour).sort((a, b) => b.strength - a.strength);
-    ps.forEach((p, i) => {
-      p.rank = i * 3 + 1 + Math.floor(r() * 3);
-      p.rankingPoints = Math.round(9000 * Math.exp(-i / 7) + 300);
+    const live = c.strategy === "In-play momentum" || r() < 0.08;
+    const pTrue = 0.25 + r() * 0.5;
+    const edge = c.strategy === "Pinnacle value" ? 0.035 : c.strategy === "Tennis serve model" ? 0.03 : c.strategy === "In-play momentum" ? -0.01 : 0.01;
+    const pMarket = Math.min(0.92, Math.max(0.08, pTrue - edge + (r() - 0.5) * 0.06));
+    const margin = 1.025 + r() * 0.03;
+    let odds = round(1 / (pMarket * margin), 2);
+    if (odds <= 1.05) odds = 1.06;
+    const pClose = Math.min(0.95, Math.max(0.05, pMarket + (pTrue - pMarket) * 0.6 + (r() - 0.5) * 0.03));
+    const closing = round(Math.max(1.02, 1 / (pClose * 1.02)), 2);
+    const opening = round(Math.max(1.02, odds * (1 + (r() - 0.45) * 0.08)), 2);
+    const est = round(Math.min(0.95, Math.max(0.05, pTrue + (r() - 0.5) * 0.08)), 4);
+    const book = live && r() < 0.4 ? "betfair_ex" : pick(BOOKS);
+    const exchange = book === "betfair_ex";
+    let market = "Match Winner", selection = c.home!, line: number | null = null, category = "result";
+    if (c.strategy === "Underdog AH") { market = "Asian Handicap"; line = pick([0.25, 0.5, 0.75]); selection = `${c.home} +${line}`; category = "handicap"; }
+    else if (c.strategy === "Hockey puck line") { market = "Puck Line"; line = -1.5; selection = `${c.home} -1.5`; category = "handicap"; }
+    else if (c.strategy === "Basketball totals") { market = "Totals"; line = round(210 + r() * 20, 0) + 0.5; selection = `${r() < 0.5 ? "Over" : "Under"} ${line}`; category = "totals"; }
+    else if (c.strategy === "In-play momentum") { market = "Over / Under"; line = pick([1.5, 2.5, 2.25, 2.75]); selection = `Over ${line}`; category = "totals"; }
+    else if (r() < 0.5) selection = c.away!;
+    const stake = c.strategy === "Underdog AH" ? 50 : c.strategy === "In-play momentum" ? 25 : c.strategy === "Basketball totals" ? 40 : c.strategy === "Hockey puck line" ? 30
+      : round(Math.max(10, Math.min(250, 4000 * Math.max(0.005, ((odds - 1) * est - (1 - est)) / (odds - 1)) * 0.25)), 0);
+    const recent = t > now.getTime() - 4 * DAY;
+    const win = r() < pTrue;
+    let status: string = recent && r() < 0.85 ? "pending" : win ? "won" : "lost";
+    const quarter = line != null && Math.abs((line * 4) % 2) === 1;
+    if (status !== "pending" && quarter && r() < 0.3) status = win ? "half_won" : "half_lost";
+    if (status !== "pending" && r() < 0.02) status = "void";
+    const side = exchange && !live && r() < 0.35 ? "lay" : "back";
+    let cashout: number | undefined;
+    if (status !== "pending" && side === "back" && r() < 0.04) { status = "cashed_out"; cashout = round(stake * (0.5 + r() * (odds - 0.5)), 2); }
+    const settledAt = t + (2 + r() * 20) * 3_600_000;
+    const eventStart = live ? t - 50 * 60_000 : t + (1 + r() * 30) * 3_600_000;
+    bets.push({
+      bankroll: c.bankroll, placed_at: iso(t), sport_key: c.sport, league_name: c.league, event_name: c.event, home: c.home, away: c.away,
+      event_start: iso(Math.min(eventStart, settledAt - 60_000)), is_live: live, market, market_category: category, selection, line,
+      side, bookmaker_key: book, odds: side === "lay" ? round(odds + 0.04, 2) : odds, stake: side === "lay" ? Math.min(stake, 60) : stake, commission: exchange ? 0.05 : 0,
+      est_probability: side === "lay" ? undefined : est, opening_odds: opening, closing_odds: status === "pending" ? undefined : closing,
+      closing_source: status === "pending" ? undefined : "demo:simulated",
+      strategy_name: c.strategy, confidence: 1 + Math.floor(r() * 5), units: round(stake / 25, 1),
+      tags: [c.sport, live ? "live" : "prematch", ...(r() < 0.15 ? ["steam"] : [])],
+      notes: r() < 0.1 ? "Simulated demo bet." : undefined,
+      correlation_group: c.sport === "football" && r() < 0.1 ? `matchday-${Math.floor(i / 20)}` : undefined,
+      status: side === "lay" && status === "won" ? "lost" : side === "lay" && status === "lost" ? "won" : status,
+      cashout_amount: cashout, settled_at: status === "pending" ? undefined : iso(settledAt),
+    });
+  }
+  // Accumulators
+  for (let i = 0; i < 14; i++) {
+    const t = start + r() * 140 * DAY;
+    const legs = Array.from({ length: 2 + Math.floor(r() * 3) }, () => {
+      const h = pick(CLUBS); let a = pick(CLUBS); while (a === h) a = pick(CLUBS);
+      const o = round(1.35 + r() * 1.2, 2);
+      const st = r() < 1 / o + 0.03 ? "won" : "lost";
+      return { event_name: `${h} v ${a}`, market: "Match Winner", selection: h, odds: o, status: st };
+    });
+    bets.push({
+      bankroll: "Main", placed_at: iso(t), sport_key: "football", event_name: `${legs.length}-fold accumulator`, market: "Accumulator",
+      bookmaker_key: pick(["bet365", "williamhill", "unibet"]), stake: 10, legs, tags: ["acca"], strategy_name: undefined,
+      settled_at: iso(t + 2 * DAY), event_start: iso(t + DAY),
+    });
+  }
+  bets.sort((a, b) => String(a.placed_at).localeCompare(String(b.placed_at)));
+
+  // Live trades (exchange back/lay with hedges and partial cash-outs)
+  const trades: Json[] = [];
+  for (let i = 0; i < 24; i++) {
+    const t = start + 10 * DAY + r() * 135 * DAY;
+    const h = pick(CLUBS); let a = pick(CLUBS); while (a === h) a = pick(CLUBS);
+    const entry = round(2 + r() * 2.5, 2);
+    const backStake = round(30 + r() * 70, 0);
+    const moved = entry * (0.6 + r() * 0.7);
+    const ex: Json[] = [{ side: "back", odds: entry, stake: backStake, executed_at: iso(t) }];
+    if (r() < 0.7) {
+      const layOdds = round(Math.max(1.05, moved), 2);
+      ex.push({ side: "lay", odds: layOdds, stake: round((backStake * entry) / layOdds, 2), executed_at: iso(t + 35 * 60_000) });
+    }
+    const open = i >= 22;
+    trades.push({
+      bankroll: "Live Trading", sport_key: "football", league_name: footballLeague(h, a), event_name: `${h} v ${a}`, market: "Match Odds", selection: h, bookmaker_key: "betfair_ex",
+      currency: "EUR", commission: 0.05, opened_at: iso(t), executions: ex,
+      ...(open ? {} : { outcome: r() < 1 / entry ? "win" : "lose", closed_at: iso(t + 2 * 3_600_000) }),
+      notes: open ? "Open simulated position" : undefined,
     });
   }
 
-  // Tournaments ----------------------------------------------------------
-  const tdefs: [string, Tour, string, Surface, 3 | 5, string][] = [
-    ["Demo Indoor Masters", "atp", "masters_1000", "indoor_hard", 3, "FRA"],
-    ["Demo Indoor Open (W)", "wta", "wta_1000", "indoor_hard", 3, "CHN"],
-    ["Demo Clay Classic", "atp", "500", "clay", 3, "ESP"],
-    ["Demo Grass Championships", "wta", "500", "grass", 3, "GBR"],
-    ["Demo Slam (hard)", "grand_slam", "grand_slam", "hard", 5, "AUS"],
-    ["Demo Challenger Hard", "challenger", "challenger_125", "hard", 3, "USA"],
-  ];
-  const tournaments: Tournament[] = tdefs.map(([name, tour, level, surface, bestOf, cc], i) => ({
-    id: `demo:t${i}`, name, tour, level, surface, countryCode: cc, startDate: null, endDate: null, bestOf,
-  }));
-  const surfaces: Surface[] = ["hard", "clay", "grass", "indoor_hard"];
-
-  const effStrength = (p: DemoPlayer, s: Surface) => p.strength + (p.surfaceBias[s] ?? 0);
-
-  // History (2 years) ----------------------------------------------------
-  const history: HistoryMatch[] = [];
-  const start = new Date(now.getTime() - 730 * 86_400_000);
-  for (let d = 0; d < 728; d++) {
-    const date = new Date(start.getTime() + d * 86_400_000);
-    const surface = surfaces[Math.floor(d / 45) % surfaces.length]!;
-    for (const tour of ["atp", "wta"] as const) {
-      const pool = players.filter((p) => p.tour === tour);
-      const n = 2 + Math.floor(r() * 2);
-      for (let k = 0; k < n; k++) {
-        const a = pool[Math.floor(r() * pool.length)]!;
-        let b = pool[Math.floor(r() * pool.length)]!;
-        if (a.id === b.id) b = pool[(pool.indexOf(a) + 1) % pool.length]!;
-        const bestOf: 3 | 5 = tour === "atp" && r() < 0.15 ? 5 : 3;
-        const pA = expectedScore(effStrength(a, surface), effStrength(b, surface));
-        const sim = simulateMatch(r, pA, bestOf);
-        const [w, l] = sim.aWon ? [a, b] : [b, a];
-        const sets = sim.sets.map((s) => (sim.aWon ? { w: s.a, l: s.b, tb: s.tb } : { w: s.b, l: s.a, tb: s.tb }));
-        const games = sets.reduce((g, s) => g + s.w + s.l, 0);
-        const svcW = Math.ceil(games / 2), svcL = Math.floor(games / 2);
-        const breaksOfL = Math.max(0, Math.round(1 + r() * 2));
-        const breaksOfW = Math.max(0, breaksOfL - 1 - Math.floor(r() * 2));
-        history.push({
-          id: `demo:h${history.length}`,
-          date: isoAt(date, 600 + k * 120),
-          tournamentId: tournaments[Math.floor(r() * tournaments.length)]!.id,
-          surface,
-          bestOf,
-          winnerId: w.id,
-          loserId: l.id,
-          sets,
-          durationMin: Math.round(games * (4.6 + r() * 1.2)),
-          winnerRankAtTime: w.rank,
-          loserRankAtTime: l.rank,
-          svc: { w: { held: svcW - breaksOfW, played: svcW }, l: { held: svcL - breaksOfL, played: svcL } },
+  // Odds-monitor events with simulated snapshots from several books
+  const events: Json[] = [];
+  for (let i = 0; i < 12; i++) {
+    const h = pick(CLUBS); let a = pick(CLUBS); while (a === h) a = pick(CLUBS);
+    const kick = now.getTime() + (2 + i * 5) * 3_600_000;
+    const pH = 0.3 + r() * 0.35, pD = 0.22 + r() * 0.08, pA = Math.max(0.08, 1 - pH - pD);
+    const sels: [string, number][] = [[h, pH], ["Draw", pD], [a, pA]];
+    const snapshots: Json[] = [];
+    // One shared market path (all books move together) + small per-book noise; margins 2.5–7%.
+    const path = sels.map(() => [0]);
+    for (let k = 1; k < 8; k++) sels.forEach((_, j) => path[j]!.push(path[j]![k - 1]! + (r() - 0.5) * 0.015 + (i === 0 && j === 0 ? -0.006 : 0)));
+    for (const bk of ["pinnacle", "bet365", "williamhill", "unibet", "betway"]) {
+      const m = bk === "pinnacle" ? 1.026 : 1.045 + r() * 0.025;
+      for (let k = 0; k < 8; k++) {
+        const raw = sels.map(([, p], j) => Math.max(0.02, p + path[j]![k]! + (r() - 0.5) * 0.006));
+        const sum = raw.reduce((a, b) => a + b, 0);
+        sels.forEach(([sel], j) => {
+          const boost = i === 3 && bk === "unibet" && sel === a ? 1.12 : 1; // one deliberate price error to demo arbitrage detection
+          const px = Math.max(1.05, round((1 / ((raw[j]! / sum) * m)) * boost, 2));
+          snapshots.push({ bookmaker: bk, selection: sel, odds: px, at: iso(now.getTime() - (24 - k * 3) * 3_600_000), suspended: i === 5 && k === 7 && bk === "bet365" });
         });
       }
     }
+    events.push({ ref: `demo-ev-${i}`, name: `${h} v ${a}`, home: h, away: a, sport_key: "football", league_name: footballLeague(h, a), start_time: iso(kick), status: "scheduled",
+      markets: [{ key: "h2h", name: "Match Winner", snapshots }] });
   }
-
-  // Today's slate --------------------------------------------------------
-  const rd = rng(daySeed);
-  const today: Match[] = [];
-  const trueProb: Record<string, number> = {};
-  const stats: Record<string, MatchStatistics> = {};
-  const odds: Record<string, OddsSnapshot[]> = {};
-  const momentum: Record<string, { point: number; value: number }[]> = {};
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const statusPlan: MatchStatus[] = [
-    "completed", "completed", "completed", "completed", "completed", "retired",
-    "live", "live", "live", "live", "suspended", "delayed",
-    ...Array<MatchStatus>(16).fill("scheduled"),
-  ];
-  const used = new Set<string>();
-  statusPlan.forEach((status, i) => {
-    const t = tournaments[i % tournaments.length]!;
-    const tourPool = players.filter((p) => (t.tour === "wta" ? p.tour === "wta" : t.tour === "grand_slam" ? p.tour === (i % 2 ? "atp" : "wta") : p.tour === "atp"));
-    let a: DemoPlayer, b: DemoPlayer;
-    let guard = 0;
-    do {
-      a = tourPool[Math.floor(rd() * tourPool.length)]!;
-      b = tourPool[Math.floor(rd() * tourPool.length)]!;
-    } while ((a.id === b.id || used.has(a.id) || used.has(b.id)) && ++guard < 50);
-    used.add(a.id); used.add(b.id);
-    const bestOf: 3 | 5 = t.tour === "grand_slam" && a.tour === "atp" ? 5 : 3;
-    const nowMin = (now.getTime() - dayStart.getTime()) / 60_000;
-    const scheduledMin =
-      status === "completed" || status === "retired" ? nowMin - 300 + i * 25
-      : status === "scheduled" ? nowMin + 30 + (i - 12) * 35
-      : nowMin - 40 - i * 4;
-    const id = `demo:m${daySeed}-${i}`;
-    const p = expectedScore(effStrength(a, t.surface), effStrength(b, t.surface));
-    trueProb[id] = p;
-
-    let score: LiveScore | null = null;
-    let winner: "a" | "b" | null = null;
-    if (status !== "scheduled" && status !== "delayed") {
-      const sim = simulateMatch(rd, p, bestOf);
-      if (status === "completed") {
-        score = { sets: sim.sets.map((s) => ({ a: s.a, b: s.b, tiebreakA: s.tb ? (s.a > s.b ? 7 : 4) : null, tiebreakB: s.tb ? (s.b > s.a ? 7 : 4) : null })), game: null, server: null };
-        winner = sim.aWon ? "a" : "b";
-      } else if (status === "retired") {
-        const partial = sim.sets.slice(0, 1);
-        score = { sets: [...partial.map((s) => ({ a: s.a, b: s.b })), { a: 2, b: 1 }], game: null, server: null };
-        winner = "a";
-      } else {
-        const done = sim.sets.slice(0, Math.max(1, sim.sets.length - 1));
-        const cur = { a: Math.floor(rd() * 5), b: Math.floor(rd() * 5) };
-        const pts = ["0", "15", "30", "40"];
-        score = { sets: [...done.map((s) => ({ a: s.a, b: s.b })), cur], game: { a: pts[Math.floor(rd() * 4)]!, b: pts[Math.floor(rd() * 4)]! }, server: rd() < 0.5 ? "a" : "b" };
-      }
-      const mk = (str: number): PlayerMatchStats => {
-        const fsAtt = Math.round(40 + rd() * 40);
-        const fsIn = Math.round(fsAtt * (0.55 + rd() * 0.15));
-        const ssPlayed = fsAtt - fsIn;
-        const svcPlayed = Math.round(8 + rd() * 6);
-        const retPlayed = Math.round(8 + rd() * 6);
-        const bpFaced = Math.round(rd() * 8);
-        const bpOpp = Math.round(rd() * 9);
-        const edge = (str - 1600) / 1000;
-        return {
-          aces: Math.round(rd() * 12), doubleFaults: Math.round(rd() * 5),
-          firstServeIn: fsIn, firstServeAttempts: fsAtt,
-          firstServePointsWon: Math.round(fsIn * (0.66 + edge * 0.2 + rd() * 0.1)), firstServePointsPlayed: fsIn,
-          secondServePointsWon: Math.round(ssPlayed * (0.45 + edge * 0.2 + rd() * 0.1)), secondServePointsPlayed: ssPlayed,
-          breakPointsSaved: Math.round(bpFaced * (0.5 + rd() * 0.4)), breakPointsFaced: bpFaced,
-          breakPointsConverted: Math.round(bpOpp * (0.3 + rd() * 0.3)), breakPointsOpportunities: bpOpp,
-          serviceGamesWon: Math.round(svcPlayed * (0.7 + rd() * 0.25)), serviceGamesPlayed: svcPlayed,
-          returnGamesWon: Math.round(retPlayed * (0.1 + rd() * 0.25)), returnGamesPlayed: retPlayed,
-          totalPointsWon: Math.round(60 + rd() * 50),
-          // Winners/UE deliberately missing on some matches to exercise "not provided" UI.
-          winners: i % 3 === 0 ? null : Math.round(15 + rd() * 25),
-          unforcedErrors: i % 3 === 0 ? null : Math.round(12 + rd() * 25),
-        };
-      };
-      stats[id] = { matchId: id, a: mk(a.strength), b: mk(b.strength), source: { provider: DEMO_PROVIDER, fetchedAt: generatedAt, updatedAt: generatedAt } };
-      let m = 0;
-      momentum[id] = Array.from({ length: 60 }, (_, k) => ({ point: k + 1, value: (m = Math.max(-10, Math.min(10, m + (rd() < p ? 1 : -1)))) }));
-    }
-
-    today.push({
-      id,
-      sport: "tennis",
-      tournament: t,
-      round: ["R64", "R32", "R16", "QF", "SF"][i % 5]!,
-      playerA: stripDemo(a),
-      playerB: stripDemo(b),
-      scheduledAt: isoAt(dayStart, scheduledMin),
-      status,
-      bestOf,
-      surface: t.surface,
-      score,
-      winner,
-      source: { provider: DEMO_PROVIDER, fetchedAt: generatedAt, updatedAt: generatedAt },
-    });
-
-    // Odds history: 48 snapshots (every 30 min for the past 24h) per bookmaker ----------
-    const snaps: OddsSnapshot[] = [];
-    const steamAt = i % 4 === 0 ? 30 + Math.floor(rd() * 10) : -1; // inject a coordinated move in some markets
-    const hasHistory = status !== "completed" && status !== "retired";
-    const steps = hasHistory ? 48 : 40;
-    const drift = (rd() - 0.5) * 0.05; // shared market drift over 24h
-    for (const bk of DEMO_BOOKMAKERS) {
-      let pa = p + (rd() - 0.5) * bk.noise * 2 - drift;
-      const lineTotal = bestOf === 5 ? 38.5 : 22.5;
-      const lineHcp = Math.round((p - 0.5) * 12) / 2 + 0.5 * Math.sign(p - 0.5 || 1);
-      for (let s = 0; s < steps; s++) {
-        pa += (rd() - 0.5) * 0.002 + drift / steps;
-        if (s === steamAt) pa += 0.03 * (p > 0.5 ? 1 : -1);
-        pa = Math.min(0.97, Math.max(0.03, pa));
-        const at = new Date(now.getTime() - (steps - s) * 30 * 60_000).toISOString();
-        const price = (q: number) => Math.max(1.01, Math.round((1 / (q * (1 + bk.margin))) * 100) / 100);
-        const base = { bookmaker: bk.key, bookmakerName: bk.name, provider: DEMO_PROVIDER, updatedAt: at, capturedAt: at };
-        snaps.push({ ...base, market: "match_winner", line: null, selection: "a", selectionLabel: a.name, odds: price(pa) });
-        snaps.push({ ...base, market: "match_winner", line: null, selection: "b", selectionLabel: b.name, odds: price(1 - pa) });
-        if (s % 4 === 0 || s === steps - 1) {
-          const po = 0.5 + (rd() - 0.5) * 0.04;
-          snaps.push({ ...base, market: "total_games", line: lineTotal, selection: "over", selectionLabel: `Over ${lineTotal}`, odds: price(po) });
-          snaps.push({ ...base, market: "total_games", line: lineTotal, selection: "under", selectionLabel: `Under ${lineTotal}`, odds: price(1 - po) });
-          const ph = 0.5 + (rd() - 0.5) * 0.04;
-          snaps.push({ ...base, market: "game_handicap", line: -lineHcp, selection: "a", selectionLabel: `${a.name} ${-lineHcp > 0 ? "+" : ""}${-lineHcp}`, odds: price(ph) });
-          snaps.push({ ...base, market: "game_handicap", line: lineHcp, selection: "b", selectionLabel: `${b.name} ${lineHcp > 0 ? "+" : ""}${lineHcp}`, odds: price(1 - ph) });
-        }
-      }
-    }
-    odds[id] = snaps;
-  });
-
-  return { generatedAt, players, tournaments, history, today, trueProb, stats, odds, momentum };
-}
-
-function stripDemo(p: DemoPlayer): Player {
-  const { strength: _s, surfaceBias: _b, ...rest } = p;
-  return rest;
-}
-
-/** Latest quote per (bookmaker, market, line, selection). */
-export function latestQuotes(snaps: OddsSnapshot[]): OddsQuote[] {
-  const m = new Map<string, OddsSnapshot>();
-  for (const s of snaps) {
-    const k = `${s.bookmaker}|${s.market}|${s.line}|${s.selection}`;
-    const cur = m.get(k);
-    if (!cur || cur.capturedAt < s.capturedAt) m.set(k, s);
-  }
-  return [...m.values()];
-}
-
-let cache: { day: number; data: DemoDataset } | null = null;
-/** Cached per UTC hour so pages are consistent within a session. */
-export function demoDataset(now = new Date()): DemoDataset {
-  const key = Math.floor(now.getTime() / 3_600_000);
-  if (!cache || cache.day !== key) cache = { day: key, data: generateDemo(new Date(key * 3_600_000 + 30 * 60_000)) };
-  return cache.data;
+  return { bankrolls, strategies, bets, trades, events };
 }

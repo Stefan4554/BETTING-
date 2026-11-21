@@ -1,0 +1,6 @@
+Date,Match,Pick,Odds,Stake,Result,Bookmaker,Sport,Market,Closing,Prob
+2026-10-01 15:00,Gamma v Delta,Gamma,2.10,50,W,Pinnacle,football,Match Winner,2.00,52%
+2026-10-02 15:00,Gamma v Delta,Delta,+150,40,L,bet365,football,Match Winner,2.40,
+2026-10-03 15:00,Epsilon v Zeta,Over 2.5,1.90,30,void,Unibet,football,Over / Under,,
+2026-10-01 15:00,Gamma v Delta,Gamma,2.10,50,W,Pinnacle,football,Match Winner,2.00,52%
+2026-10-04 15:00,Bad row,X,0.9,10,W,Pinnacle,football,Match Winner,,

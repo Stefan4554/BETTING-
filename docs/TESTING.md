@@ -1,46 +1,21 @@
 # Testing
 
-## Run
+| Suite | Command | Covers |
+| --- | --- | --- |
+| Unit (Vitest) | `npm test` | `tests/finance/*`: win/loss/void/half results, cash-outs (full & partial), accumulators, Asian handicap & quarter totals, lay bets, commission, rounding vs PostgreSQL, Kelly & staking systems & caps, EV/edge, CLV (both conventions, lay), arbitrage (2/3-way, commission, max stake, FX), trading positions & green-up, drawdown, streaks, Sharpe/Sortino, risk of ruin, grouping, periods, date ranges, calibration (Brier, log loss, Wilson), risk aggregation & limits, FX snapshots/inverse/triangulation, odds format parsing. Plus providers (normalisation, quota, 401/HTTP-200 errors, retry/caching), import mapping, CSV injection, key encryption, demo dataset invariants. |
+| Database | `npm run test:db` | `supabase/tests/financial_test.sql` on all migrations: signup bootstrap, every settlement type, double-settlement rejection, accumulators, reopen/edit/delete with ledger reversal, bulk settle atomicity, withdrawals/overdraft, transfers with FX, FX-missing rejection, locked FX on settlement, ledger invariants, trading P&L and commission, risk-limit enforcement, imports with duplicates/errors, blocked direct writes, **data isolation between users**, demo reset/clear isolation, closing-odds capture. |
+| Parity | `npm run test:parity` (needs `DATABASE_URL`) | TypeScript vs SQL `bet_profit`, liability, payout on 600 random bets; leg factors; trade P&L; trade reservation ledger postings |
+| Email (integration) | `SUPABASE_TEST_URL=… SUPABASE_TEST_SERVICE_KEY=… npx vitest run tests/email.db.test.ts` | Real database outbox: preferences, demo exclusion, sent/retry/failed transitions, dedupe, concurrent workers send once, email-only alerts, unconfigured provider |
+| Live odds | `THE_ODDS_API_KEY=… npm run test:live-odds` | Real HTTP to the provider (no mocks). Reports VERIFIED / FAILED / NOT VERIFIED |
+| Lint | `npm run lint` | ESLint (next/core-web-vitals + typescript) |
+| End-to-end | `npm run test:e2e` (app + Supabase running) | flow3: trade reservation on open / partial close / full close with ledger verification, accumulator saved leg-by-leg and settled as partial loss, date basis + presets, risk-adjusted panel, notification preferences + test email status, odds connection test status. |
+| End-to-end (cont.) | | Fresh signup, deposit, fast-entry bet, settle with closing odds, ledger verification, dashboard ROI/CLV, CSV import (mapping, errors, duplicates), CSV export, report PDF/Excel/CSV, JSON backup (auth required, no secrets), staking page, strategy creation, enforced risk limit rejection |
+
+Run the SQL suite against the local Supabase stack instead of a scratch database:
 
 ```bash
-npm run typecheck          # strict TypeScript, whole project
-npm test                   # Vitest unit tests
-bash scripts/test-db.sh    # migrations + RLS tests against a scratch Postgres (needs psql superuser)
-NEXT_PUBLIC_DEMO_MODE=true npm run build
+SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:db
 ```
 
-CI (`.github/workflows/ci.yml`) runs all four on every push and pull request. The database job uses a Postgres 16 service container.
-
-## Unit tests (64)
-
-| File | Covers |
-| --- | --- |
-| `tests/engine.test.ts` | Implied probability, fair odds, EV, edge, overround, movement %, CLV, American↔decimal; all four de-vig methods (sum to 1, keep the ordering, power/Shin shift margin to the longshot, 3-way Shin); full/fractional Kelly, cap, confidence shrinkage, input validation; market consensus (stale/incomplete books excluded, best price, null when empty); value engine (EV, fair odds, confidence, **null instead of a fabricated probability**, uncertainty warnings, threshold filtering); steam detection; reverse line movement returns null without data |
-| `tests/model.test.ts` | Elo symmetry, K decay, zero-sum update, **chronological leakage guard**, null on insufficient history, interval contains the estimate; Brier, log loss, accuracy, calibration bins, chronological split; **walk-forward backtest** on a synthetic league with known strengths (Brier < 0.25, accuracy > 55%, ECE < 10%); bet P/L for every status (mirrors the SQL trigger), summary/yield/ROI/win rate excluding voids/CLV, grouping, bankroll curve, CSV escaping and formula-injection guard |
-| `tests/providers.test.ts` | HTTP layer: key redaction, 5xx retry then success, cache hit, no retry on 401; The Odds API normalization (h2h/spreads/totals, quota headers, decimal format, **missing fields stay null**); Sportradar summaries (header auth, live status, surface, set scores, server, stats, missing stats stay null); API-Tennis fixtures; status and surface mapping |
-| `tests/live-prob.test.ts` | Game win probability against the closed-form solution; symmetry; calibration reproduces the pre-match probability; leading raises the probability, finished states are 0/1; alert rules (threshold, cooldown, inactive, crossing-only for value alerts, match start/status); player analytics (form, splits, hold/break, tiebreaks, workload, null without service data, H2H); odds↔match linking (surname keys, swapped home/away flips selections); SUSPECT flag |
-
-Provider fixtures follow each provider's documented response shape. They test the normalization code and are never shown in the app.
-
-## Database tests
-
-`supabase/tests/rls_test.sql` (run by `scripts/test-db.sh`) applies the migrations on plain Postgres, using `supabase_stubs.sql` to stand in for `auth.users`, `auth.uid()` and the roles. It then checks:
-
-- a profile row is created automatically on sign-up
-- the bet-profit trigger for won / lost / half-won / pending, and that `settled_at` is set
-- RLS blocks inserting a bet for another user
-- a user **cannot promote themselves** to admin
-- user B sees none of user A's bets, no provider config, and only their own profile
-- an admin can read provider config
-
-## Manual / end-to-end checks performed for phase 1
-
-- All 18 pages, the 404 page and the login page return 200 in demo mode and in live mode without keys; no browser console errors
-- Live mode without keys: every section shows NOT CONNECTED or an empty-state explanation, with no demo data
-- Tracker: add a bet, P/L and CLV calculated, validation rejects odds ≤ 1, persistence after reload
-- No horizontal scroll at phone width (390 px)
-
-## Not yet verified
-
-- Requests against **real provider keys** (none were available). Use API management → Test connection once keys are added.
-- Supabase Auth flows against a hosted project (sign-up, magic link, RLS through PostgREST). The RLS policies themselves are tested at the SQL level.
+CI (`.github/workflows/ci.yml`) runs typecheck, unit tests and a production build, and in a
+second job applies the migrations to Postgres 16 and runs the SQL and parity suites.

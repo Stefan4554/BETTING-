@@ -1,57 +1,71 @@
-# API providers: required subscriptions and credentials
+# Odds data providers
 
-The app works with **no keys** in demo mode. For live data you need **one odds provider and one tennis data provider**. Prices change often, so check each provider's pricing page before buying.
+Odds are only ever shown from stored provider snapshots. Without a connected provider the Odds
+Monitor and Live Trading pages say so, and all bets can still be entered manually.
 
-## What you need, by feature
+| Provider | Adapter | Data | Auth | Limits | Notes |
+| --- | --- | --- | --- | --- | --- |
+| [The Odds API](https://the-odds-api.com/liveapi/guides/v4/) | `src/lib/providers/the-odds-api.ts` | Multi-sport bookmaker odds (h2h, spreads, totals, outrights), in-play once started | `apiKey` query param | Credits: each `/odds` call costs markets × regions; quota in `x-requests-*` headers | `/sports` is free; recommended starting point |
+| [API-Football](https://www.api-football.com/documentation-v3) | `src/lib/providers/api-football.ts` | Football fixtures + pre-match odds (1X2, O/U, Asian handicap, BTTS, double chance) | `x-apisports-key` header | Free tier 100 requests/day; min refresh 300 s | League IDs + season configured per connection |
+| Sportradar Odds Comparison | — (listed, not implemented) | Enterprise feeds | `api_key` | Contract | Adapter can be added via the provider interface |
 
-| Feature | Needs |
-| --- | --- |
-| Lines board, odds comparison, value bets, line movement | **The Odds API** key |
-| Live scores, schedules, results, match statistics, rankings, player profiles | **Sportradar Tennis v3** key (or **API-Tennis** as a cheaper alternative) |
-| Odds history, closing odds, CLV from history, model training data | **Supabase** project + `SUPABASE_SERVICE_ROLE_KEY` + cron (`CRON_SECRET`) |
-| Login, saved bets, server-side alerts, realtime notifications | **Supabase** (free tier is fine to start) |
-| Email alerts | **Resend** key + verified sender (optional) |
+## How a connection works
 
-## 1. The Odds API (odds), implemented
+1. The key is posted to a server action, encrypted with AES-256-GCM and stored in
+   `api_connection_secrets` (service-role only). The browser only ever sees the last 4 characters.
+2. **Test connection** sends a real request with the server-stored key (The Odds API: `/v4/sports`,
+   free of credits; API-Football: `/status`), validates the response schema, parses it and stores the
+   full result (`api_connections.last_test_result`: checks, latency, quota, sample counts).
+   **Test + odds sample** additionally fetches and parses one odds payload (uses credits).
+   Status is classified, never optimistic:
 
-- **Sign up:** https://the-odds-api.com
-- **Plan:** the free tier (500 credits/month) is enough to test. For continuous tennis coverage you need a **paid plan**. Cost per call is `markets × regions` credits for each active tennis tournament. With 3 markets × 2 regions × ~6 active tournaments every 10 minutes, that is roughly **260k credits/month**, so either raise the plan or lower the frequency, markets or regions.
-- **Credential:** `THE_ODDS_API_KEY`, sent as the `apiKey` query parameter, server-side only.
-- **Config:** `THE_ODDS_API_REGIONS` (default `eu,uk`) and `THE_ODDS_API_MARKETS` (default `h2h,spreads,totals`).
-- **Provides:** match winner, game handicap and total games from 40+ bookmakers, with per-bookmaker `last_update`. No set-level, correct-score or player markets for tennis.
-- **Rate/quota:** tracked from the `x-requests-used`, `x-requests-remaining` and `x-requests-last` headers and shown in API Management. The `/sports` call used by "Test connection" costs no credits.
+   | Status | Meaning |
+   | --- | --- |
+   | `ok` | provider responded and the payload parsed |
+   | `auth_error` | 401/403 or provider auth error (incl. API-Football's HTTP-200 `errors.token`) |
+   | `rate_limited` | 429 or exhausted quota (e.g. `OUT_OF_USAGE_CREDITS`) |
+   | `outage` | 5xx after retries |
+   | `unreachable` | DNS / network / firewall / timeout — **the integration was not verified** |
+   | `invalid_response` | non-JSON or unexpected structure |
 
-## 2. Sportradar Tennis API v3 (tennis data), implemented
+   Failures write a request-log row and raise an `api_failure` alert (in-app/email per preferences).
+3. **Fetch now** / the cron job call `ingest()`:
+   * provider → `NormalizedEvent[]` (events, markets with lines, per-bookmaker quotes),
+   * upsert events (owner = the connection's user) and markets,
+   * insert snapshots only when price/line/suspension changed or 30 minutes passed,
+   * mark closing snapshots (last pre-start price) and copy closing odds onto linked bets
+     (reference bookmaker from Settings, else the bet's own bookmaker),
+   * raise odds-movement alerts for markets with pending bets.
+4. Every HTTP request is logged (`api_request_logs`) with redacted URL, status, duration, cache
+   hit, cost and error. The HTTP layer retries 429/5xx with exponential backoff (honouring
+   `Retry-After`), never retries other 4xx, rate-limits per provider and caches responses briefly.
 
-- **Sign up:** https://developer.sportradar.com, then create an application and request **Tennis v3**.
-- **Plan:** a **30-day trial** is free, with request limits of about 1 per second and a monthly cap. Production use needs a **commercial licence**; pricing comes from Sportradar sales.
-- **Credentials:** `SPORTRADAR_TENNIS_API_KEY` (sent in the `x-api-key` header) and `SPORTRADAR_TENNIS_ACCESS_LEVEL` = `trial` or `production`.
-- **Endpoints used:** `/schedules/{date}/summaries.json`, `/schedules/live/summaries.json` and `/rankings.json`.
-- **Provides:** schedules, live score and game state, match statistics (aces, double faults, serve %, break points, service games, points; winners and unforced errors only on some coverage levels), ATP/WTA rankings, competitor profiles and H2H.
-- **Note:** field mapping follows the published v3 schema and is covered by fixture tests. It has **not yet been run against a live key**. Run "Test connection" on the API Management page after adding the key, and report any mapping gaps.
+## Adding a provider
 
-## 3. API-Tennis (tennis data, alternative), implemented
+Implement `OddsProvider` (`src/lib/providers/types.ts`):
 
-- **Sign up:** https://api-tennis.com. Paid plans include a 14-day trial.
-- **Credential:** `API_TENNIS_KEY`, sent as the `APIkey` query parameter.
-- **Used when:** no Sportradar key is set.
-- **Provides:** fixtures and livescores (`get_fixtures`, `get_livescore`). Point-by-point and statistics depend on the plan; surface is not reported, so it shows as Unknown.
-- **Note:** like Sportradar, it is fixture-tested but **not yet run against a live key**.
+```ts
+interface OddsProvider {
+  id: string; name: string;
+  test(cfg): Promise<TestResult>;
+  listSports(cfg): Promise<ProviderSport[]>;
+  fetchOdds(cfg, providerSportKey): Promise<{ events: NormalizedEvent[]; quota: QuotaInfo; fetchedAt: string }>;
+}
+```
 
-## 4. Sportradar Odds Comparison, planned (phase 2)
+register it in `registry.ts`, add a row to `odds_providers` with `implemented = true`, and map
+its bookmaker keys in `bookmakers.provider_keys` (unknown bookmakers are created automatically).
 
-- Commercial licence from Sportradar. Credential: `SPORTRADAR_ODDS_API_KEY`.
-- It is registered in the app and shows NOT IMPLEMENTED until the adapter mapping is built.
+## Live verification
 
-## 5. Supabase
+Mocked-transport tests (`tests/providers.test.ts`) cover valid key, invalid key, quota exhaustion,
+rate limits with `Retry-After`, timeouts, network failure, 5xx outages and malformed payloads. They do
+**not** prove the live integration. To verify against the real provider:
 
-- https://supabase.com. The free tier works for development; **Pro** is recommended in production for daily backups and point-in-time recovery.
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (public, protected by RLS), `SUPABASE_SERVICE_ROLE_KEY` (server-only, used by workers).
+```bash
+THE_ODDS_API_KEY=<your key> npm run test:live-odds                     # exit 0 = VERIFIED
+API_FOOTBALL_KEY=<your key> LIVE_ODDS_PROVIDER=api_football npm run test:live-odds
+```
 
-## 6. Resend (optional, email alerts)
-
-- https://resend.com. Set `RESEND_API_KEY` and `ALERTS_FROM_EMAIL` (on a verified domain).
-
-## Terms of use
-
-The app uses only licensed APIs. It does **not** scrape bookmakers and does not get around any provider's terms. Check that your subscription allows your use: some data licences forbid redistribution, commercial use, or showing data to third parties.
+Exit 1 = provider reached but rejected (bad key, quota, outage, malformed); exit 2 = not verified
+(no key or provider unreachable). Then repeat **Test connection** and **Fetch now** in the deployed app.
